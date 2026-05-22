@@ -1,16 +1,15 @@
 <script setup>
-import { ref } from 'vue'
-import { Users, Dumbbell } from '@lucide/vue'
-import ClassSetup  from './components/ClassSetup.vue'
-import SkillSetup  from './components/SkillSetup.vue'
-import LiveSession from './components/LiveSession.vue'
+import { ref } from "vue";
+import { Users, Dumbbell } from "@lucide/vue";
+import ClassSetup from "./components/ClassSetup.vue";
+import SkillSetup from "./components/SkillSetup.vue";
+import LiveSession from "./components/LiveSession.vue";
 
-const modal = ref(null) // null | 'classes' | 'skills'
+const modal = ref(null); // null | 'classes' | 'skills'
 </script>
 
 <template>
   <div id="app-shell">
-
     <LiveSession />
 
     <!-- Floating action buttons -->
@@ -39,17 +38,26 @@ const modal = ref(null) // null | 'classes' | 'skills'
         <div class="modal-card">
           <button class="modal-close" @click="modal = null">✕</button>
           <ClassSetup v-if="modal === 'classes'" @done="modal = null" />
-          <SkillSetup v-if="modal === 'skills'"  @done="modal = null" />
+          <SkillSetup v-if="modal === 'skills'" @done="modal = null" />
         </div>
       </div>
     </Teleport>
-
   </div>
 </template>
 
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #fff; color: #111; font-family: system-ui, sans-serif; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  background: #fff;
+  color: #111;
+  font-family: system-ui, sans-serif;
+}
 </style>
 
 <style scoped>
@@ -82,10 +90,20 @@ body { background: #fff; color: #111; font-family: system-ui, sans-serif; }
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    transform 0.15s;
 }
-.fab:hover  { background: rgba(40, 22, 4, 0.88); color: #ffe090; transform: scale(1.08); }
-.fab.active { background: #e8a820; color: #1a0e04; }
+.fab:hover {
+  background: rgba(40, 22, 4, 0.88);
+  color: #ffe090;
+  transform: scale(1.08);
+}
+.fab.active {
+  background: #e8a820;
+  color: #1a0e04;
+}
 
 /* ── Modal overlay ──────────────────────────────────── */
 .modal-overlay {
@@ -129,5 +147,7 @@ body { background: #fff; color: #111; font-family: system-ui, sans-serif; }
   justify-content: center;
   z-index: 1;
 }
-.modal-close:hover { background: #e0e0e0; }
+.modal-close:hover {
+  background: #e0e0e0;
+}
 </style>
