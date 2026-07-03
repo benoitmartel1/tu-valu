@@ -1,55 +1,75 @@
 <script setup>
-import { ref } from 'vue'
-import { supabase } from '../supabase'
+import { ref } from "vue";
+import { supabase } from "../supabase";
 
-const emit = defineEmits(['done'])
+const emit = defineEmits(["done"]);
 
-const evaluations = ref([{ title: '', rawText: '' }])
-const saving = ref(false)
-const error = ref(null)
+const evaluations = ref([
+  { title: "", rawText: "", scaleText: "1\n2\n3\n4\n5" },
+]);
+const saving = ref(false);
+const error = ref(null);
 
 function parseSkills(rawText) {
   return rawText
-    .split('\n')
-    .map(line => line.split('\t')[0].trim())
-    .filter(name => name.length > 0)
+    .split("\n")
+    .map((line) => line.split("\t")[0].trim())
+    .filter((name) => name.length > 0);
+}
+
+function parseScale(scaleText) {
+  return scaleText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((l) => l.length > 0);
 }
 
 function addEvaluation() {
-  evaluations.value.push({ title: '', rawText: '' })
+  evaluations.value.push({
+    title: "",
+    rawText: "",
+    scaleText: "1\n2\n3\n4\n5",
+  });
 }
 
 function removeEvaluation(index) {
-  evaluations.value.splice(index, 1)
+  evaluations.value.splice(index, 1);
 }
 
 async function saveAll() {
-  error.value = null
-  const valid = evaluations.value.filter(e => e.title.trim() && parseSkills(e.rawText).length > 0)
+  error.value = null;
+  const valid = evaluations.value.filter(
+    (e) => e.title.trim() && parseSkills(e.rawText).length > 0,
+  );
   if (valid.length === 0) {
-    error.value = 'Add at least one evaluation with a title and skills.'
-    return
+    error.value = "Add at least one evaluation with a title and skills.";
+    return;
   }
-  saving.value = true
+  saving.value = true;
   try {
     for (const ev of valid) {
       const { data: evData, error: evError } = await supabase
-        .from('tu_evaluations')
+        .from("tu_evaluations")
         .insert({ title: ev.title.trim() })
         .select()
-        .single()
-      if (evError) throw evError
+        .single();
+      if (evError) throw evError;
 
-      const { error: skillsError } = await supabase
-        .from('tu_skills')
-        .insert(parseSkills(ev.rawText).map(name => ({ name, evaluation_id: evData.id })))
-      if (skillsError) throw skillsError
+      const scale = parseScale(ev.scaleText || "");
+      const { error: skillsError } = await supabase.from("tu_skills").insert(
+        parseSkills(ev.rawText).map((name) => ({
+          name,
+          evaluation_id: evData.id,
+          scale: scale.length > 0 ? scale : ["1", "2", "3", "4", "5"],
+        })),
+      );
+      if (skillsError) throw skillsError;
     }
-    emit('done')
+    emit("done");
   } catch (e) {
-    error.value = e.message
+    error.value = e.message;
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 </script>
@@ -65,7 +85,13 @@ async function saveAll() {
           placeholder="Evaluation title (e.g. Basketball, Gymnastics L1)"
           class="eval-title-input"
         />
-        <button v-if="evaluations.length > 1" class="remove-btn" @click="removeEvaluation(i)">✕</button>
+        <button
+          v-if="evaluations.length > 1"
+          class="remove-btn"
+          @click="removeEvaluation(i)"
+        >
+          ✕
+        </button>
       </div>
 
       <textarea
@@ -75,19 +101,37 @@ e.g. Dribbling, Shooting, Passing…"
         rows="6"
       />
 
+      <label class="scale-label">Evaluation scale (one level per line)</label>
+      <textarea
+        v-model="ev.scaleText"
+        placeholder="1
+2
+3
+4
+5"
+        rows="5"
+        class="scale-input"
+      />
+
       <div v-if="parseSkills(ev.rawText).length" class="preview">
-        <span v-for="skill in parseSkills(ev.rawText)" :key="skill" class="skill-chip">
+        <span
+          v-for="skill in parseSkills(ev.rawText)"
+          :key="skill"
+          class="skill-chip"
+        >
           {{ skill }}
         </span>
       </div>
     </div>
 
-    <button class="add-eval-btn" @click="addEvaluation">+ Add another evaluation</button>
+    <button class="add-eval-btn" @click="addEvaluation">
+      + Add another evaluation
+    </button>
 
     <p v-if="error" class="error">{{ error }}</p>
 
     <button class="save-btn" :disabled="saving" @click="saveAll">
-      {{ saving ? 'Saving…' : 'Save evaluations' }}
+      {{ saving ? "Saving…" : "Save evaluations" }}
     </button>
   </div>
 </template>
@@ -136,7 +180,10 @@ h2 {
   color: #888;
   font-size: 0.9rem;
 }
-.remove-btn:hover { color: #c00; border-color: #c00; }
+.remove-btn:hover {
+  color: #c00;
+  border-color: #c00;
+}
 
 textarea {
   width: 100%;
@@ -176,7 +223,10 @@ textarea {
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
 }
-.add-eval-btn:hover { border-color: #555; color: #222; }
+.add-eval-btn:hover {
+  border-color: #555;
+  color: #222;
+}
 
 .error {
   color: #c00;
@@ -194,6 +244,33 @@ textarea {
   font-size: 1rem;
   cursor: pointer;
 }
-.save-btn:hover:not(:disabled) { background: #1446b8; }
-.save-btn:disabled { opacity: 0.6; cursor: default; }
+.save-btn:hover:not(:disabled) {
+  background: #1446b8;
+}
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.scale-label {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.scale-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  resize: vertical;
+  font-family: monospace;
+  line-height: 1.4;
+  margin-top: 0.3rem;
+  margin-bottom: 0.5rem;
+}
 </style>
