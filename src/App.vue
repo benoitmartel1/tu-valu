@@ -17,9 +17,7 @@ import LiveSession from "./components/LiveSession.vue";
   padding: 0;
 }
 body {
-  background: #fff;
-  color: #111;
-  font-family: system-ui, sans-serif;
+  color: var(--text-light);
 }
 </style>
 

@@ -127,7 +127,7 @@ async function deleteItem(id) {
             cancelEdit();
           "
         >
-          Évaluations
+          Activités
         </button>
       </div>
 
@@ -312,7 +312,7 @@ async function deleteItem(id) {
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+
   border: 1px solid rgba(255, 200, 80, 0.2);
 }
 
@@ -329,15 +329,16 @@ async function deleteItem(id) {
 .crud-header h2 {
   font-size: 1.3rem;
   font-weight: 700;
-  color: #ffeece;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  color: var(--text-light);
+  opacity: 0.9;
   margin: 0;
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: rgba(255, 220, 120, 0.75);
+  color: var(--text-light);
+  opacity: 0.6;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -345,7 +346,8 @@ async function deleteItem(id) {
   transition: color 0.2s;
 }
 .close-btn:hover {
-  color: #ffeece;
+  color: var(--text-light);
+  opacity: 0.9;
 }
 
 /* ── Tabs ───────────────────────────────────────────── */
@@ -362,19 +364,21 @@ async function deleteItem(id) {
   padding: 0.75rem;
   border: none;
   background: transparent;
-  color: rgba(255, 220, 120, 0.6);
+  color: var(--text-light);
+  opacity: 0.6;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  text-transform: uppercase;
   font-size: 0.85rem;
   letter-spacing: 0.05em;
 }
 .tab-btn:hover {
-  color: rgba(255, 220, 120, 0.8);
+  color: var(--text-light);
+  opacity: 0.8;
 }
 .tab-btn.active {
-  color: #ffeece;
+  color: var(--text-light);
+  opacity: 1;
   border-bottom: 2px solid #e8a820;
   background: rgba(232, 168, 32, 0.1);
 }
@@ -391,7 +395,8 @@ async function deleteItem(id) {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: rgba(255, 220, 120, 0.6);
+  color: var(--text-light);
+  opacity: 0.6;
   font-size: 1.5rem;
 }
 
@@ -416,7 +421,8 @@ async function deleteItem(id) {
   border: 1px solid rgba(255, 200, 80, 0.2);
   background: rgba(20, 10, 2, 0.4);
   backdrop-filter: blur(6px);
-  color: rgba(255, 235, 170, 0.85);
+  color: var(--text-light);
+  opacity: 0.85;
   font-weight: 500;
 }
 
@@ -431,7 +437,8 @@ async function deleteItem(id) {
   border-radius: 50%;
   border: none;
   background: rgba(255, 200, 80, 0.15);
-  color: rgba(255, 220, 120, 0.7);
+  color: var(--text-light);
+  opacity: 0.7;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -440,11 +447,13 @@ async function deleteItem(id) {
 }
 .action-btn:hover {
   background: rgba(255, 200, 80, 0.3);
-  color: #ffe8a0;
+  color: var(--text-light);
+  opacity: 0.9;
 }
 .action-btn.delete:hover {
   background: rgba(255, 100, 80, 0.3);
-  color: #ff9080;
+  color: var(--track-red);
+  opacity: 0.8;
 }
 
 .item-edit {
@@ -465,7 +474,6 @@ async function deleteItem(id) {
 }
 .edit-input:focus {
   outline: none;
-  box-shadow: 0 0 8px rgba(232, 168, 32, 0.4);
 }
 
 .save-btn,
@@ -502,7 +510,8 @@ async function deleteItem(id) {
   border-radius: 8px;
   border: 2px dashed rgba(255, 200, 80, 0.4);
   background: transparent;
-  color: rgba(255, 220, 120, 0.7);
+  color: var(--text-light);
+  opacity: 0.7;
   font-weight: 600;
   cursor: pointer;
   display: flex;
@@ -513,7 +522,8 @@ async function deleteItem(id) {
 }
 .add-btn:hover {
   border-color: rgba(255, 200, 80, 0.7);
-  color: #ffe8a0;
+  color: var(--text-light);
+  opacity: 0.9;
   background: rgba(255, 200, 80, 0.08);
 }
 </style>

@@ -42,7 +42,7 @@ async function saveAll() {
 
       const { error: studentsError } = await supabase
         .from('tu_students')
-        .insert(parseNames(cls.rawText).map(name => ({ name, class_id: classData.id })))
+        .insert(parseNames(cls.rawText).map(name => ({ firstname: name, lastname: '', class_id: classData.id })))
       if (studentsError) throw studentsError
     }
     emit('done')

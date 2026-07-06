@@ -1,14 +1,43 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:root {
+  --bg-dark: #2a9d8f;
+  --turf-green: #a8dadc;
+  --track-red: #e76f51;
+  --stadium-yellow: #2a9d8f;
+  --court-blue: #264653;
+  --text-light: #f1faee;
+}
 
 body {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: "Quicksand", system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
-  color: #111;
-  background: #fff;
+  color: var(--text-light);
+  background: var(--court-blue);
   -webkit-font-smoothing: antialiased;
 }
 
 #app {
   min-height: 100svh;
+}
+input {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
+/* Ensures the border/outline doesn't return when clicked or focused */
+input:focus {
+  border: none;
+  outline: none;
+  box-shadow: none;
 }
