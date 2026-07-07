@@ -12,6 +12,9 @@ import {
   Eye,
   ArrowLeft,
   ChevronLeft,
+  ChevronUp,
+  Undo2,
+  Download,
   createLucideIcon,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
@@ -60,6 +63,7 @@ const editingNewSkillMin = ref(1);
 const editingNewSkillMax = ref(5);
 const editingNewSkillStep = ref(1);
 const showNewSkillForm = ref(false);
+const editingSkillIndex = ref(null); // null = adding new, number = editing skill at this index
 
 // ── Live state ────────────────────────────────────────
 const view = ref("select");
@@ -214,9 +218,12 @@ async function addNewClass() {
 }
 
 async function deleteClass(id) {
-  if (!confirm("Êtes-vous sûr?")) return;
+  if (!confirm("Supprimer cette classe et tous ses élèves ?")) return;
   await supabase.from("tu_classes").delete().eq("id", id);
   classes.value = classes.value.filter((c) => c.id !== id);
+  if (classDetailId.value === id) {
+    classDetailId.value = null;
+  }
   if (selectedClassId.value === id) {
     selectedClassId.value = null;
     classStudents.value = [];
@@ -319,6 +326,7 @@ function cancelEvalEdit() {
   isAddingNewEval.value = false;
   editingSkills.value = [];
   showNewSkillForm.value = false;
+  editingSkillIndex.value = null;
 }
 
 // ── Skill CRUD (within eval edit) ──────────────────────
@@ -335,6 +343,31 @@ async function loadEvalSkills(evalId) {
   editingSkills.value = data || [];
 }
 
+function startEditSkill(skill, index) {
+  editingNewSkillName.value = skill.name;
+  if (skill.scale && skill.scale.length > 0) {
+    const nums = skill.scale.map(Number).filter((n) => !isNaN(n));
+    editingNewSkillMin.value = Math.min(...nums);
+    editingNewSkillMax.value = Math.max(...nums);
+    editingNewSkillStep.value = nums.length > 1 ? nums[1] - nums[0] : 1;
+  } else {
+    editingNewSkillMin.value = 1;
+    editingNewSkillMax.value = 5;
+    editingNewSkillStep.value = 1;
+  }
+  editingSkillIndex.value = index;
+  showNewSkillForm.value = true;
+}
+
+function cancelSkillForm() {
+  editingNewSkillName.value = "";
+  editingNewSkillMin.value = 1;
+  editingNewSkillMax.value = 5;
+  editingNewSkillStep.value = 1;
+  showNewSkillForm.value = false;
+  editingSkillIndex.value = null;
+}
+
 async function addSkill() {
   if (!editingNewSkillName.value.trim()) return;
   const min = Number(editingNewSkillMin.value);
@@ -344,25 +377,31 @@ async function addSkill() {
   for (let v = min; v <= max; v += step) {
     scale.push(String(v));
   }
+  const name = editingNewSkillName.value.trim();
   const payload = {
-    name: editingNewSkillName.value.trim(),
+    name,
     scale,
     evaluation_id: editingEvalId.value,
   };
-  const { data } = await supabase
-    .from("tu_skills")
-    .insert(payload)
-    .select()
-    .single();
-  if (data) {
-    editingSkills.value.push(data);
+
+  if (editingSkillIndex.value !== null) {
+    // Update existing skill
+    const skill = editingSkills.value[editingSkillIndex.value];
+    if (!skill) return;
+    await supabase.from("tu_skills").update(payload).eq("id", skill.id);
+    editingSkills.value[editingSkillIndex.value] = { ...skill, name, scale };
+  } else {
+    // Create new skill
+    const { data } = await supabase
+      .from("tu_skills")
+      .insert(payload)
+      .select()
+      .single();
+    if (data) {
+      editingSkills.value.push(data);
+    }
   }
-  // Reset form
-  editingNewSkillName.value = "";
-  editingNewSkillMin.value = 1;
-  editingNewSkillMax.value = 5;
-  editingNewSkillStep.value = 1;
-  showNewSkillForm.value = false;
+  cancelSkillForm();
 }
 
 async function saveSkill(skill, index) {
@@ -538,19 +577,13 @@ function hasUsedLevel(studentId, skillId, level) {
   return !!usedLevels.value[studentId]?.[skillId]?.[level];
 }
 
-// ── Bubble sizing ─────────────────────────────────────
-const BUBBLE_SIZE = 36;
-
-function bubbleSize() {
-  return BUBBLE_SIZE;
-}
-
+// ── Opacity helper ─────────────────────────────────────
 function studentOpacity(studentId) {
   const count = totalCount(studentId);
   const max = maxSessionCount.value;
-  if (max === 0) return 0.5;
-  // Interpolate: least-evaluated → 0.5 (50%), most-evaluated → 0.1 (10%)
-  return 0.5 - (count / max) * 0.4;
+  if (max === 0) return 1;
+  // Interpolate: least-evaluated → 1 (100%), most-evaluated → 0.2 (20%)
+  return 1 - (count / max) * 0.8;
 }
 
 // ── Drag-and-drop ─────────────────────────────────────
@@ -653,8 +686,20 @@ function onDragEnd() {
     supabase
       .from("tu_session_events")
       .insert(eventPayload)
-      .then(({ error }) => {
-        if (error) console.error("Failed to save event:", error);
+      .select("id")
+      .single()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Failed to save event:", error);
+          return;
+        }
+        // Store in undo history
+        actionHistory.value.push({
+          studentId,
+          skillId,
+          level,
+          eventId: data.id,
+        });
       })
       .catch((err) => console.error("Failed to save event:", err));
 
@@ -703,6 +748,98 @@ function onDragStart(e, student) {
   document.addEventListener("pointercancel", onDragCancel);
 }
 
+// ── Undo last action ────────────────────────────────────
+async function undoLastAction() {
+  const action = actionHistory.value.pop();
+  if (!action) return;
+
+  const { studentId, skillId, level, eventId } = action;
+
+  // Revert counts (all events)
+  const newCounts = { ...counts.value };
+  if (newCounts[studentId]) {
+    newCounts[studentId] = { ...newCounts[studentId] };
+    if (newCounts[studentId][skillId] != null) {
+      newCounts[studentId][skillId] -= 1;
+      if (newCounts[studentId][skillId] <= 0) {
+        delete newCounts[studentId][skillId];
+      }
+    }
+    if (Object.keys(newCounts[studentId]).length === 0) {
+      delete newCounts[studentId];
+    }
+  }
+  counts.value = newCounts;
+
+  // Revert session counts
+  const newSC = { ...sessionCounts.value };
+  if (newSC[studentId]) {
+    newSC[studentId] = { ...newSC[studentId] };
+    if (newSC[studentId][skillId] != null) {
+      newSC[studentId][skillId] -= 1;
+      if (newSC[studentId][skillId] <= 0) {
+        delete newSC[studentId][skillId];
+      }
+    }
+    if (Object.keys(newSC[studentId]).length === 0) {
+      delete newSC[studentId];
+    }
+  }
+  sessionCounts.value = newSC;
+
+  // Revert per-level count
+  const newLC = { ...levelCounts.value };
+  if (newLC[studentId]) {
+    newLC[studentId] = { ...newLC[studentId] };
+    if (newLC[studentId][skillId]) {
+      newLC[studentId][skillId] = { ...newLC[studentId][skillId] };
+      if (newLC[studentId][skillId][level] != null) {
+        newLC[studentId][skillId][level] -= 1;
+        if (newLC[studentId][skillId][level] <= 0) {
+          delete newLC[studentId][skillId][level];
+        }
+      }
+      if (Object.keys(newLC[studentId][skillId]).length === 0) {
+        delete newLC[studentId][skillId];
+      }
+    }
+    if (Object.keys(newLC[studentId]).length === 0) {
+      delete newLC[studentId];
+    }
+  }
+  levelCounts.value = newLC;
+
+  // Revert used levels — only remove the level marker if no count remains
+  if (!levelCounts.value[studentId]?.[skillId]?.[level]) {
+    const newUsed = { ...usedLevels.value };
+    if (newUsed[studentId]) {
+      newUsed[studentId] = { ...newUsed[studentId] };
+      if (newUsed[studentId][skillId]) {
+        newUsed[studentId][skillId] = { ...newUsed[studentId][skillId] };
+        delete newUsed[studentId][skillId][level];
+        if (Object.keys(newUsed[studentId][skillId]).length === 0) {
+          delete newUsed[studentId][skillId];
+        }
+      }
+      if (Object.keys(newUsed[studentId]).length === 0) {
+        delete newUsed[studentId];
+      }
+    }
+    usedLevels.value = newUsed;
+  }
+
+  // Remove from database
+  const { error } = await supabase
+    .from("tu_session_events")
+    .delete()
+    .eq("id", eventId);
+  if (error) {
+    console.error("Failed to delete event for undo:", error);
+    // Re-push the action so the user can retry
+    actionHistory.value.push(action);
+  }
+}
+
 // ── Clone style (computed for reactivity) ─────────────
 const cloneStyle = computed(() => {
   if (!drag.value) return { display: "none" };
@@ -724,6 +861,19 @@ const selectedEvaluation = computed(() =>
 const selectedClass = computed(() =>
   classes.value.find((c) => c.id === selectedClassId.value),
 );
+
+// ── Editing class title (for the ClassDetail modal header) ─
+const editingClassTitle = computed(() => {
+  if (classDetailId.value === "new") return "Nouvelle classe";
+  if (classDetailId.value) {
+    const cls = classes.value.find((c) => c.id === classDetailId.value);
+    return cls?.name || "Chargement…";
+  }
+  return "Groupes";
+});
+
+// ── Undo history ────────────────────────────────────────
+const actionHistory = ref([]); // { studentId, skillId, level, eventId }[]
 
 // ── Report state ──────────────────────────────────────
 const reportModalOpen = ref(false);
@@ -751,6 +901,14 @@ watch(
 const reportData = ref(null); // { sessions: [], students: [], skills: [], events: [] }
 const reportLoading = ref(false);
 const selectedSessionId = ref(null); // null = all sessions
+const reportSelectedStudentId = ref(null); // null = list, id = student detail
+
+const reportSelectedStudent = computed(
+  () =>
+    reportData.value?.students.find(
+      (s) => s.id === reportSelectedStudentId.value,
+    ) || null,
+);
 
 const filteredEvents = computed(() => {
   if (!reportData.value) return [];
@@ -813,11 +971,12 @@ async function openReport() {
 function formatDateTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return (
-    d.toLocaleDateString() +
-    " " +
-    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  );
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}`;
 }
 
 function countBy(arr, key) {
@@ -904,6 +1063,188 @@ function studentSkillLast(studentId, skillId) {
     .level;
 }
 
+function studentSkillInSession(studentId, skillId, sessionId) {
+  if (!reportData.value) return null;
+  const evt = reportData.value.events.find(
+    (e) =>
+      e.student_id === studentId &&
+      e.skill_id === skillId &&
+      e.session_id === sessionId,
+  );
+  return evt ? evt.level : null;
+}
+
+// ── Chart helpers ──────────────────────────────────────
+const chartColors = [
+  "#e8a820",
+  "#42a5f5",
+  "#66bb6a",
+  "#ef5350",
+  "#ab47bc",
+  "#ff7043",
+  "#26c6da",
+  "#8d6e63",
+  "#78909c",
+  "#ffa726",
+  "#5c6bc0",
+  "#8bc34a",
+];
+
+const studentChartData = computed(() => {
+  if (!reportData.value || !reportSelectedStudentId.value) return null;
+  const { sessions, skills } = reportData.value;
+  const events = reportData.value.events.filter(
+    (e) => e.student_id === reportSelectedStudentId.value,
+  );
+  if (sessions.length === 0) return null;
+
+  const sortedSessions = [...sessions].sort(
+    (a, b) => new Date(a.started_at) - new Date(b.started_at),
+  );
+
+  const allLevels = events
+    .map((e) => parseFloat(e.level))
+    .filter((v) => !isNaN(v));
+  if (allLevels.length === 0) return null;
+
+  const yMin = Math.min(...allLevels);
+  const yMax = Math.max(...allLevels);
+  const yPad = Math.max((yMax - yMin) * 0.1, 0.5);
+  const yAxisMin = Math.floor(yMin - yPad);
+  const yAxisMax = Math.ceil(yMax + yPad);
+
+  const datasets = skills.map((skill, i) => {
+    const data = sortedSessions.map((session) => {
+      const sessionEvents = events.filter(
+        (e) => e.session_id === session.id && e.skill_id === skill.id,
+      );
+      const levels = sessionEvents
+        .map((e) => parseFloat(e.level))
+        .filter((v) => !isNaN(v));
+      if (levels.length === 0) return null;
+      return levels.reduce((a, b) => a + b, 0) / levels.length;
+    });
+    return { skill, data, color: chartColors[i % chartColors.length] };
+  });
+
+  return { sessions: sortedSessions, datasets, yAxisMin, yAxisMax };
+});
+
+function chartX(index, total) {
+  if (total <= 1) return 300;
+  return 50 + (index / (total - 1)) * 520;
+}
+
+function chartY(value, yMin, yMax) {
+  const plotTop = 20;
+  const plotBottom = 180;
+  if (yMax === yMin) return (plotTop + plotBottom) / 2;
+  return plotBottom - ((value - yMin) / (yMax - yMin)) * (plotBottom - plotTop);
+}
+
+function chartPath(data, yMin, yMax) {
+  const total = data.length;
+  const points = data.map((v, i) => {
+    if (v == null) return null;
+    const x = chartX(i, total);
+    const y = chartY(v, yMin, yMax);
+    return { x, y };
+  });
+
+  // Build SVG path: move to first valid point, then line to each subsequent
+  let path = "";
+  let started = false;
+  for (const p of points) {
+    if (p == null) {
+      started = false;
+      continue;
+    }
+    if (!started) {
+      path += `M${p.x},${p.y} `;
+      started = true;
+    } else {
+      path += `L${p.x},${p.y} `;
+    }
+  }
+  return path;
+}
+
+function formatDateShort(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${m}/${day}`;
+}
+
+// ── Export report ──────────────────────────────────────
+function exportReport() {
+  if (!reportData.value) return;
+  const { students, skills, events } = reportData.value;
+  const filtered = selectedSessionId.value
+    ? events.filter((e) => e.session_id === selectedSessionId.value)
+    : events;
+
+  // Build per-student per-skill stats
+  const stats = {};
+  for (const s of students) {
+    stats[s.id] = {};
+    for (const sk of skills) {
+      const evts = filtered.filter(
+        (e) => e.student_id === s.id && e.skill_id === sk.id,
+      );
+      if (evts.length === 0) continue;
+      const levels = evts
+        .map((e) => parseFloat(e.level))
+        .filter((v) => !isNaN(v));
+      const sorted = [...evts].sort(
+        (a, b) => new Date(b.created_at) - new Date(a.created_at),
+      );
+      stats[s.id][sk.id] = {
+        nb: evts.length,
+        min: Math.min(...levels),
+        max: Math.max(...levels),
+        avg: levels.reduce((a, b) => a + b, 0) / levels.length,
+        last: sorted[0].level,
+      };
+    }
+  }
+
+  // Build CSV rows
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+  };
+
+  const header = ["Élève", ...skills.map((sk) => sk.name)];
+  const rows = students.map((s) => {
+    const name = `${s.firstname} ${s.lastname}`;
+    const vals = skills.map((sk) => {
+      const st = stats[s.id]?.[sk.id];
+      if (!st) return "";
+      return `${st.nb} (min:${st.min} max:${st.max} moy:${st.avg.toFixed(1)} dernier:${st.last})`;
+    });
+    return [name, ...vals];
+  });
+
+  const csv = [header, ...rows].map((r) => r.map(esc).join(",")).join("\n");
+
+  // Trigger download
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const classLabel = selectedClass.value?.name || "classe";
+  const evalLabel = selectedEvaluation.value?.title || "evaluation";
+  a.download = `${classLabel}_${evalLabel}_rapport.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 defineExpose({
   openClassModal,
   openEvalModal,
@@ -916,7 +1257,16 @@ defineExpose({
   <div class="app-root">
     <!-- ── TOP BAR (menu buttons) ──────────────────────── -->
     <div class="top-bar">
-      <div class="top-bar-spacer"></div>
+      <div class="top-bar-left">
+        <button
+          class="undo-btn"
+          :disabled="actionHistory.length === 0"
+          title="Annuler la dernière action"
+          @click="undoLastAction"
+        >
+          <Undo2 :size="16" />
+        </button>
+      </div>
       <div class="top-bar-center">
         <button
           class="fab"
@@ -994,7 +1344,7 @@ defineExpose({
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
     <div class="main-content">
       <!-- LIVE SCREEN (bottom layer) -->
-      <div v-if="view === 'active'" class="wood-bg live-screen">
+      <div v-if="view === 'active'" class="live-screen">
         <!-- Drop zones -->
         <div
           class="zones-container"
@@ -1071,74 +1421,82 @@ defineExpose({
       <!-- MODAL OVERLAY (top layer) -->
       <div
         v-show="classModalOpen || evalModalOpen || reportModalOpen"
-        class="wood-bg picker-screen picker-screen--modal"
+        class="picker-screen picker-screen--modal"
       >
         <Transition name="panel-drawer" mode="out-in">
           <div
             v-if="classModalOpen"
             key="class"
-            class="picker-panel class-modal picker-panel--full"
+            class="picker-panel class-modal picker-panel--full class-modal--bg"
             :class="{ 'class-modal--editing': classEditMode }"
           >
             <div class="picker-panel-header">
-              <span>Groupes</span>
+              <div v-if="classDetailId !== null" class="header-left">
+                <button class="back-btn" @click="classDetailId = null">
+                  <ChevronLeft :size="36" :stroke-width="3" />
+                </button>
+                <span>{{ editingClassTitle }}</span>
+              </div>
+              <span v-else>Groupes</span>
               <div class="header-actions">
                 <button
-                  class="header-btn"
-                  :class="{ active: classEditMode }"
-                  title="Mode édition"
-                  @click="classEditMode = !classEditMode"
+                  v-if="classDetailId !== null && classDetailId !== 'new'"
+                  class="header-trash-btn"
+                  title="Supprimer la classe"
+                  @click="deleteClass(classDetailId)"
                 >
-                  <SquarePen :size="18" />
+                  <Trash2 :size="24" />
                 </button>
                 <button class="close-btn" @click="classModalOpen = false">
-                  <X :size="18" />
+                  <ChevronUp :size="36" :stroke-width="3" />
                 </button>
               </div>
             </div>
 
             <div class="class-modal-body">
-              <template v-if="classDetailId !== null">
+              <Transition name="slide-edit" mode="out-in">
                 <ClassDetail
+                  v-if="classDetailId !== null"
+                  key="edit"
                   :class-id="classDetailId === 'new' ? null : classDetailId"
                   @close="classDetailId = null"
                   @saved="onClassDetailSaved"
                   @deleted="onClassDetailDeleted"
                 />
-              </template>
-              <template v-else>
-                <div
-                  v-for="cls in classes"
-                  :key="cls.id"
-                  class="picker-item-row"
-                >
-                  <button
-                    class="picker-item"
-                    :class="{ selected: selectedClassId === cls.id }"
-                    @click="handleClassClick(cls)"
+                <div v-else key="list">
+                  <div
+                    v-for="cls in classes"
+                    :key="cls.id"
+                    class="picker-item-row"
                   >
-                    <span>{{ cls.name }}</span>
-                  </button>
-                  <button
-                    class="row-edit-btn"
-                    title="Modifier"
-                    @click="classDetailId = cls.id"
-                  >
-                    <SquarePen :size="14" />
-                  </button>
+                    <button
+                      class="picker-item"
+                      :class="{ selected: selectedClassId === cls.id }"
+                      @click="handleClassClick(cls)"
+                    >
+                      <span>{{ cls.name }}</span>
+                      <span
+                        class="row-edit-btn"
+                        title="Modifier"
+                        @click.stop="classDetailId = cls.id"
+                      >
+                        <SquarePen :size="22" />
+                      </span>
+                    </button>
+                  </div>
+                  <div v-if="classes.length === 0" class="picker-empty">
+                    Aucune classe
+                  </div>
+                  <div class="picker-item-row">
+                    <button
+                      class="picker-item picker-item--inline"
+                      @click="classDetailId = 'new'"
+                    >
+                      <Plus :size="28" :stroke-width="3" />
+                    </button>
+                  </div>
                 </div>
-                <div v-if="classes.length === 0" class="picker-empty">
-                  Aucune classe
-                </div>
-                <div class="picker-item-row">
-                  <button
-                    class="picker-item picker-item--inline"
-                    @click="classDetailId = 'new'"
-                  >
-                    <span>+ Ajouter</span>
-                  </button>
-                </div>
-              </template>
+              </Transition>
             </div>
           </div>
 
@@ -1159,7 +1517,7 @@ defineExpose({
                     isAddingNewEval = false;
                   "
                 >
-                  <ChevronLeft :size="32" />
+                  <ChevronLeft :size="36" :stroke-width="3" />
                 </button>
                 <span v-if="editingEvalId && !isAddingNewEval">{{
                   editingEvalTitle
@@ -1169,7 +1527,7 @@ defineExpose({
               <div class="header-actions">
                 <button
                   v-if="editingEvalId && !isAddingNewEval"
-                  class="close-btn"
+                  class="header-trash-btn"
                   @click="
                     deleteEval(editingEvalId);
                     cancelEvalEdit();
@@ -1177,173 +1535,185 @@ defineExpose({
                   "
                   title="Supprimer l'évaluation"
                 >
-                  <Trash2 :size="18" />
+                  <Trash2 :size="24" />
                 </button>
-                <button v-else class="close-btn" @click="evalModalOpen = false">
-                  <X :size="18" />
+                <button class="close-btn" @click="evalModalOpen = false">
+                  <ChevronUp :size="36" :stroke-width="3" />
                 </button>
               </div>
             </div>
 
             <div class="class-modal-body">
-              <template v-if="editingEvalId || isAddingNewEval">
-                <template v-if="isAddingNewEval">
-                  <div class="class-edit-row">
-                    <input
-                      v-model="editingEvalTitle"
-                      class="edit-input"
-                      autofocus
-                      placeholder="Titre de l'évaluation"
-                      @blur="addNewEval"
-                      @keyup.enter="addNewEval"
-                      @keyup.escape="
-                        cancelEvalEdit();
-                        isAddingNewEval = false;
-                      "
-                    />
-                  </div>
-                </template>
-
-                <template v-else>
-                  <div
-                    v-for="ev in evaluations"
-                    :key="ev.id"
-                    class="class-edit-row"
-                  >
-                    <template v-if="editingEvalId === ev.id">
+              <Transition name="slide-edit" mode="out-in">
+                <div v-if="editingEvalId || isAddingNewEval" key="edit">
+                  <template v-if="isAddingNewEval">
+                    <div class="class-edit-row">
                       <input
                         v-model="editingEvalTitle"
                         class="edit-input"
                         autofocus
-                        @blur="saveEvalTitle(ev)"
-                        @keyup.enter="saveEvalEdit(ev)"
-                        @keyup.escape="cancelEvalEdit"
+                        placeholder="Titre de l'évaluation"
+                        @blur="addNewEval"
+                        @keyup.enter="addNewEval"
+                        @keyup.escape="
+                          cancelEvalEdit();
+                          isAddingNewEval = false;
+                        "
                       />
-                      <div class="skills-section">
-                        <div class="skills-header">habiletés</div>
-                        <div
-                          v-for="(sk, si) in editingSkills"
-                          :key="sk.id || si"
-                          class="skill-row"
-                        >
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <div
+                      v-for="ev in evaluations"
+                      :key="ev.id"
+                      class="class-edit-row"
+                    >
+                      <template v-if="editingEvalId === ev.id">
+                        <div class="eval-name-row">
+                          <label class="eval-label">Nom</label>
                           <input
-                            v-model="sk.name"
-                            class="skill-input"
-                            placeholder="Nom de l'habileté"
-                            @change="saveSkill(sk, si)"
+                            v-model="editingEvalTitle"
+                            class="edit-input"
+                            autofocus
+                            @blur="saveEvalTitle(ev)"
+                            @keyup.enter="saveEvalEdit(ev)"
+                            @keyup.escape="cancelEvalEdit"
                           />
-                          <span class="skill-scale-preview">
-                            {{ sk.scale?.[0] || "?" }} →
-                            {{ sk.scale?.[sk.scale.length - 1] || "?" }} ({{
-                              sk.scale?.length || 0
-                            }}
-                            niveaux)
-                          </span>
-                          <button
-                            class="action-btn delete"
-                            @click="removeSkill(sk, si)"
+                        </div>
+                        <div class="skills-section">
+                          <div class="skills-header">
+                            Habiletés
+                            <span class="skills-count">{{
+                              editingSkills.length
+                            }}</span>
+                          </div>
+                          <div
+                            v-for="(sk, si) in editingSkills"
+                            :key="sk.id || si"
+                            class="skill-row"
                           >
-                            <Trash2 :size="16" />
+                            <span
+                              class="skill-name"
+                              @click="startEditSkill(sk, si)"
+                            >
+                              {{ sk.name }}
+                            </span>
+                            <span class="skill-scale-preview">
+                              {{ sk.scale?.[0] || "?" }} →
+                              {{ sk.scale?.[sk.scale.length - 1] || "?" }} ({{
+                                sk.scale?.length || 0
+                              }}
+                              niveaux)
+                            </span>
+                            <button
+                              class="btn-icon btn-icon--delete"
+                              title="Supprimer"
+                              @click="removeSkill(sk, si)"
+                            >
+                              <Trash2 :size="20" />
+                            </button>
+                          </div>
+
+                          <template v-if="showNewSkillForm">
+                            <div class="skill-add-form">
+                              <input
+                                v-model="editingNewSkillName"
+                                class="skill-input"
+                                placeholder="Nom de l'habileté"
+                                @keyup.enter="addSkill"
+                              />
+                              <div class="skill-range-config">
+                                <label
+                                  >Min
+                                  <input
+                                    v-model.number="editingNewSkillMin"
+                                    type="number"
+                                    class="range-input"
+                                    min="0"
+                                /></label>
+                                <label
+                                  >Max
+                                  <input
+                                    v-model.number="editingNewSkillMax"
+                                    type="number"
+                                    class="range-input"
+                                    min="0"
+                                /></label>
+                                <label
+                                  >Pas
+                                  <input
+                                    v-model.number="editingNewSkillStep"
+                                    type="number"
+                                    class="range-input"
+                                    min="0.1"
+                                    step="0.1"
+                                /></label>
+                              </div>
+                              <div class="skill-add-actions">
+                                <button class="save-btn" @click="addSkill">
+                                  +
+                                </button>
+                                <button
+                                  class="cancel-btn"
+                                  @click="cancelSkillForm"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          </template>
+                          <button
+                            v-else
+                            class="add-skill-btn"
+                            title="Ajouter une habileté"
+                            @click="showNewSkillForm = true"
+                          >
+                            <Plus :size="28" :stroke-width="3" />
                           </button>
                         </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
 
-                        <template v-if="showNewSkillForm">
-                          <div class="skill-add-form">
-                            <input
-                              v-model="editingNewSkillName"
-                              class="skill-input"
-                              placeholder="Nom de l'habileté"
-                              @keyup.enter="addSkill"
-                            />
-                            <div class="skill-range-config">
-                              <label
-                                >Min
-                                <input
-                                  v-model.number="editingNewSkillMin"
-                                  type="number"
-                                  class="range-input"
-                                  min="0"
-                              /></label>
-                              <label
-                                >Max
-                                <input
-                                  v-model.number="editingNewSkillMax"
-                                  type="number"
-                                  class="range-input"
-                                  min="0"
-                              /></label>
-                              <label
-                                >Pas
-                                <input
-                                  v-model.number="editingNewSkillStep"
-                                  type="number"
-                                  class="range-input"
-                                  min="0.1"
-                                  step="0.1"
-                              /></label>
-                            </div>
-                            <div class="skill-add-actions">
-                              <button class="save-btn" @click="addSkill">
-                                +
-                              </button>
-                              <button
-                                class="cancel-btn"
-                                @click="showNewSkillForm = false"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        </template>
-                        <button
-                          v-else
-                          class="add-skill-btn"
-                          @click="showNewSkillForm = true"
-                        >
-                          <Plus :size="14" /> Ajouter une habileté
-                        </button>
-                      </div>
-                    </template>
+                <div v-else key="list">
+                  <div
+                    v-for="ev in evaluations"
+                    :key="ev.id"
+                    class="picker-item-row"
+                  >
+                    <button
+                      class="picker-item"
+                      :class="{ selected: selectedEvaluationId === ev.id }"
+                      @click="handleEvalClick(ev)"
+                    >
+                      <span>{{ ev.title }}</span>
+                      <span
+                        class="row-edit-btn"
+                        title="Modifier"
+                        @click.stop="startEvalEdit(ev)"
+                      >
+                        <SquarePen :size="22" />
+                      </span>
+                    </button>
                   </div>
-                </template>
-              </template>
-
-              <template v-else>
-                <div
-                  v-for="ev in evaluations"
-                  :key="ev.id"
-                  class="picker-item-row"
-                >
-                  <button
-                    class="picker-item"
-                    :class="{ selected: selectedEvaluationId === ev.id }"
-                    @click="handleEvalClick(ev)"
-                  >
-                    <span>{{ ev.title }}</span>
-                  </button>
-                  <button
-                    class="row-edit-btn"
-                    title="Modifier"
-                    @click="startEvalEdit(ev)"
-                  >
-                    <SquarePen :size="14" />
-                  </button>
+                  <div v-if="evaluations.length === 0" class="picker-empty">
+                    Aucune évaluation
+                  </div>
+                  <div class="picker-item-row">
+                    <button
+                      class="picker-item picker-item--inline"
+                      @click="
+                        isAddingNewEval = true;
+                        editingEvalTitle = '';
+                      "
+                    >
+                      <Plus :size="28" :stroke-width="3" />
+                    </button>
+                  </div>
                 </div>
-                <div v-if="evaluations.length === 0" class="picker-empty">
-                  Aucune évaluation
-                </div>
-                <div class="picker-item-row">
-                  <button
-                    class="picker-item picker-item--inline"
-                    @click="
-                      isAddingNewEval = true;
-                      editingEvalTitle = '';
-                    "
-                  >
-                    <span>+ Ajouter</span>
-                  </button>
-                </div>
-              </template>
+              </Transition>
             </div>
           </div>
 
@@ -1354,10 +1724,34 @@ defineExpose({
             class="picker-panel report-modal picker-panel--full"
           >
             <div class="picker-panel-header">
-              <span>Rapport</span>
-              <button class="close-btn" @click="reportModalOpen = false">
-                <X :size="18" />
-              </button>
+              <div class="header-left">
+                <button
+                  v-if="reportSelectedStudentId"
+                  class="back-btn"
+                  @click="reportSelectedStudentId = null"
+                >
+                  <ChevronLeft :size="36" :stroke-width="3" />
+                </button>
+                <span v-if="reportSelectedStudent">{{
+                  reportSelectedStudent.firstname +
+                  " " +
+                  reportSelectedStudent.lastname
+                }}</span>
+                <span v-else>Rapport</span>
+              </div>
+              <div class="header-actions">
+                <button
+                  class="export-btn"
+                  :disabled="!reportData"
+                  title="Exporter en CSV"
+                  @click="exportReport"
+                >
+                  <Download :size="22" />
+                </button>
+                <button class="close-btn" @click="reportModalOpen = false">
+                  <ChevronUp :size="36" :stroke-width="3" />
+                </button>
+              </div>
             </div>
 
             <div class="report-body">
@@ -1366,109 +1760,296 @@ defineExpose({
                 Aucune donnée.
               </div>
               <template v-else>
-                <div class="report-meta">
-                  {{ selectedClass?.name }} — {{ selectedEvaluation?.title }} ·
-                  {{ reportData.sessions.length }} session(s) ·
-                  {{ reportData.students.length }} élève(s)
-                </div>
-                <div
-                  class="report-filter"
-                  v-if="reportData.sessions.length > 0"
-                >
-                  <select v-model="selectedSessionId" class="session-select">
-                    <option :value="null">Toutes les sessions</option>
-                    <option
-                      v-for="s in reportData.sessions"
-                      :key="s.id"
-                      :value="s.id"
-                    >
-                      {{ formatDateTime(s.started_at)
-                      }}{{
-                        s.ended_at
-                          ? " → " + formatDateTime(s.ended_at)
-                          : " (en cours)"
-                      }}
-                    </option>
-                  </select>
-                </div>
-                <div
-                  v-if="reportData.students.length === 0"
-                  class="report-empty"
-                >
-                  Aucun élève dans cette classe.
-                </div>
-                <template v-else>
-                  <table class="report-table">
-                    <thead>
-                      <tr>
-                        <th class="report-th-student">Élève</th>
-                        <th
-                          v-for="skill in reportData.skills"
-                          :key="skill.id"
-                          class="report-th-skill-col"
-                        >
-                          {{ skill.name }}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="student in reportData.students"
-                        :key="student.id"
+                <Transition name="slide-edit" mode="out-in">
+                  <!-- Student detail: chart + sessions × skills table -->
+                  <div
+                    v-if="reportSelectedStudentId && reportSelectedStudent"
+                    :key="'detail-' + reportSelectedStudentId"
+                    class="report-student-detail"
+                  >
+                    <div class="report-chart" v-if="studentChartData">
+                      <div class="report-chart-title">Progression</div>
+                      <svg
+                        class="report-chart-svg"
+                        viewBox="0 0 600 240"
+                        preserveAspectRatio="xMidYMid meet"
                       >
-                        <td class="report-td-student">
-                          {{ student.firstname + " " + student.lastname }}
-                        </td>
-                        <td
-                          v-for="skill in reportData.skills"
-                          :key="skill.id"
-                          class="report-td-count"
+                        <!-- Grid lines -->
+                        <line
+                          v-for="n in 4"
+                          :key="'grid' + n"
+                          :x1="50"
+                          :y1="
+                            chartY(
+                              studentChartData.yAxisMin +
+                                ((studentChartData.yAxisMax -
+                                  studentChartData.yAxisMin) *
+                                  n) /
+                                  4,
+                              studentChartData.yAxisMin,
+                              studentChartData.yAxisMax,
+                            )
+                          "
+                          :x2="570"
+                          :y2="
+                            chartY(
+                              studentChartData.yAxisMin +
+                                ((studentChartData.yAxisMax -
+                                  studentChartData.yAxisMin) *
+                                  n) /
+                                  4,
+                              studentChartData.yAxisMin,
+                              studentChartData.yAxisMax,
+                            )
+                          "
+                          stroke="rgba(38,70,83,0.08)"
+                          stroke-width="1"
+                        />
+                        <!-- Y-axis labels -->
+                        <text
+                          v-for="n in 5"
+                          :key="'yl' + n"
+                          :x="45"
+                          :y="
+                            chartY(
+                              studentChartData.yAxisMin +
+                                ((studentChartData.yAxisMax -
+                                  studentChartData.yAxisMin) *
+                                  (n - 1)) /
+                                  4,
+                              studentChartData.yAxisMin,
+                              studentChartData.yAxisMax,
+                            ) + 4
+                          "
+                          text-anchor="end"
+                          class="chart-axis-label"
+                        >
+                          {{
+                            (
+                              studentChartData.yAxisMin +
+                              ((studentChartData.yAxisMax -
+                                studentChartData.yAxisMin) *
+                                (n - 1)) /
+                                4
+                            ).toFixed(1)
+                          }}
+                        </text>
+                        <!-- Lines -->
+                        <path
+                          v-for="ds in studentChartData.datasets"
+                          :key="ds.skill.id"
+                          :d="
+                            chartPath(
+                              ds.data,
+                              studentChartData.yAxisMin,
+                              studentChartData.yAxisMax,
+                            )
+                          "
+                          :stroke="ds.color"
+                          stroke-width="2"
+                          fill="none"
+                          stroke-linejoin="round"
+                          stroke-linecap="round"
+                        />
+                        <!-- Dots -->
+                        <g
+                          v-for="(ds, di) in studentChartData.datasets"
+                          :key="'dots' + di"
                         >
                           <template
-                            v-if="studentSkillCount(student.id, skill.id) > 0"
+                            v-for="(val, si) in ds.data"
+                            :key="'d' + di + '-' + si"
                           >
-                            <div class="skill-stats">
-                              <span class="stat-item"
-                                ><Eye :size="11" />
-                                <span class="stat-val">{{
-                                  studentSkillCount(student.id, skill.id)
-                                }}</span></span
-                              >
-                              <span class="stat-item stat-tri"
-                                ><span class="tri-down">▼</span>
-                                <span class="stat-val">{{
-                                  fmtNum(studentSkillMin(student.id, skill.id))
-                                }}</span></span
-                              >
-                              <span class="stat-item stat-tri"
-                                ><span class="tri-up">▲</span>
-                                <span class="stat-val">{{
-                                  fmtNum(studentSkillMax(student.id, skill.id))
-                                }}</span></span
-                              >
-                              <span class="stat-item"
-                                ><span class="stat-tilde">~</span>
-                                <span class="stat-val">{{
-                                  fmtNum(studentSkillAvg(student.id, skill.id))
-                                }}</span></span
-                              >
-                              <span
-                                v-if="
-                                  studentSkillLast(student.id, skill.id) != null
-                                "
-                                class="stat-item stat-last-big"
-                                >{{
-                                  studentSkillLast(student.id, skill.id)
-                                }}</span
-                              >
-                            </div>
+                            <circle
+                              v-if="val != null"
+                              :cx="chartX(si, studentChartData.sessions.length)"
+                              :cy="
+                                chartY(
+                                  val,
+                                  studentChartData.yAxisMin,
+                                  studentChartData.yAxisMax,
+                                )
+                              "
+                              :r="3"
+                              :fill="ds.color"
+                            />
                           </template>
-                          <span v-else class="stats-na">N/A</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </template>
+                        </g>
+                        <!-- X-axis labels -->
+                        <text
+                          v-for="(s, i) in studentChartData.sessions"
+                          :key="'xl' + i"
+                          :x="chartX(i, studentChartData.sessions.length)"
+                          y="200"
+                          text-anchor="middle"
+                          class="chart-axis-label chart-axis-label-x"
+                        >
+                          {{ formatDateShort(s.started_at) }}
+                        </text>
+                      </svg>
+                      <!-- Legend -->
+                      <div class="chart-legend">
+                        <span
+                          v-for="ds in studentChartData.datasets"
+                          :key="ds.skill.id"
+                          class="chart-legend-item"
+                        >
+                          <span
+                            class="chart-legend-dot"
+                            :style="{ background: ds.color }"
+                          ></span>
+                          {{ ds.skill.name }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <table class="report-detail-table">
+                      <thead>
+                        <tr>
+                          <th class="detail-th-date">Session</th>
+                          <th
+                            v-for="skill in reportData.skills"
+                            :key="skill.id"
+                            class="detail-th-skill"
+                          >
+                            {{ skill.name }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="session in reportData.sessions"
+                          :key="session.id"
+                        >
+                          <td class="detail-td-date">
+                            {{ formatDateTime(session.started_at) }}
+                          </td>
+                          <td
+                            v-for="skill in reportData.skills"
+                            :key="skill.id"
+                            class="detail-td-level"
+                          >
+                            <template
+                              v-if="
+                                studentSkillInSession(
+                                  reportSelectedStudent.id,
+                                  skill.id,
+                                  session.id,
+                                ) != null
+                              "
+                            >
+                              {{
+                                studentSkillInSession(
+                                  reportSelectedStudent.id,
+                                  skill.id,
+                                  session.id,
+                                )
+                              }}
+                            </template>
+                            <span v-else class="stats-na">—</span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Report table (list) -->
+                  <div v-else key="list">
+                    <div
+                      v-if="reportData.students.length === 0"
+                      class="report-empty"
+                    >
+                      Aucun élève dans cette classe.
+                    </div>
+                    <template v-else>
+                      <table class="report-table">
+                        <thead>
+                          <tr>
+                            <th class="report-th-student">Élève</th>
+                            <th
+                              v-for="skill in reportData.skills"
+                              :key="skill.id"
+                              class="report-th-skill-col"
+                            >
+                              {{ skill.name }}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr
+                            v-for="student in reportData.students"
+                            :key="student.id"
+                          >
+                            <td
+                              class="report-td-student report-td-student--clickable"
+                              @click="reportSelectedStudentId = student.id"
+                            >
+                              {{ student.firstname + " " + student.lastname }}
+                            </td>
+                            <td
+                              v-for="skill in reportData.skills"
+                              :key="skill.id"
+                              class="report-td-count"
+                            >
+                              <template
+                                v-if="
+                                  studentSkillCount(student.id, skill.id) > 0
+                                "
+                              >
+                                <div class="skill-stats">
+                                  <span
+                                    v-if="
+                                      studentSkillLast(student.id, skill.id) !=
+                                      null
+                                    "
+                                    class="stat-latest"
+                                  >
+                                    <span class="stat-latest-value">{{
+                                      studentSkillLast(student.id, skill.id)
+                                    }}</span>
+                                  </span>
+                                  <span class="stat-group">
+                                    <span class="stat-item"
+                                      ><Eye :size="11" />
+                                      <span class="stat-val">{{
+                                        studentSkillCount(student.id, skill.id)
+                                      }}</span></span
+                                    >
+                                    <span class="stat-item stat-tri"
+                                      ><span class="tri-down">▼</span>
+                                      <span class="stat-val">{{
+                                        fmtNum(
+                                          studentSkillMin(student.id, skill.id),
+                                        )
+                                      }}</span></span
+                                    >
+                                    <span class="stat-item stat-tri"
+                                      ><span class="tri-up">▲</span>
+                                      <span class="stat-val">{{
+                                        fmtNum(
+                                          studentSkillMax(student.id, skill.id),
+                                        )
+                                      }}</span></span
+                                    >
+                                    <span class="stat-item"
+                                      ><span class="stat-tilde">~</span>
+                                      <span class="stat-val">{{
+                                        fmtNum(
+                                          studentSkillAvg(student.id, skill.id),
+                                        )
+                                      }}</span></span
+                                    >
+                                  </span>
+                                </div>
+                              </template>
+                              <span v-else class="stats-na">N/A</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </template>
+                  </div>
+                </Transition>
               </template>
             </div>
           </div>
@@ -1476,15 +2057,7 @@ defineExpose({
       </div>
 
       <!-- BRAND / PICKER SCREEN (top layer) -->
-      <div
-        v-if="
-          view === 'select' &&
-          !classModalOpen &&
-          !evalModalOpen &&
-          !reportModalOpen
-        "
-        class="wood-bg picker-screen"
-      >
+      <div class="wood-bg picker-screen">
         <div class="brand">
           <img class="hero-img" src="/tu-hero.png" alt="" />
           <div class="brand-name">Tuvalu</div>
@@ -1504,14 +2077,7 @@ defineExpose({
           :style="{ opacity: studentOpacity(student.id) }"
           @pointerdown="onDragStart($event, student)"
         >
-          <div
-            class="student-bubble"
-            :style="{
-              width: bubbleSize() + 'px',
-              height: bubbleSize() + 'px',
-              fontSize: Math.max(7, bubbleSize() * 0.25) + 'px',
-            }"
-          >
+          <div class="student-bubble">
             {{ student.firstname }}
           </div>
         </div>
@@ -1549,7 +2115,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px 0 12px;
+  padding: 6px 20px 0 20px;
 
   height: 80px;
 }
@@ -1557,7 +2123,14 @@ defineExpose({
   height: 60px;
 }
 .students-row {
+  padding: 15px;
+  gap: 6px;
   justify-content: center;
+  flex-wrap: wrap;
+  min-height: 100px;
+  height: auto;
+  overflow-y: auto;
+  align-items: flex-start;
 }
 .top-bar-center {
   display: flex;
@@ -1622,12 +2195,20 @@ defineExpose({
 
 /* ── Turf background ──────────────────────────────── */
 .wood-bg {
-  background: #457b9d;
+  background: #3a5e69;
+  /* box-shadow: inset 0 0 60px 20px rgb(116, 199, 255, 0.4); */
+  /* filter: brightness(1.45); */
+
+  z-index: 0 !important;
 }
 /* ── Eval background (yellow) ────────────────────── */
 .eval-bg {
   /* --text-light: #1a0e04; */
   background: var(--stadium-yellow);
+}
+.class-modal--bg {
+  /* --text-light: #1a0e04; */
+  background: #457b9d;
 }
 
 .eval-bg .picker-item.selected {
@@ -1645,10 +2226,18 @@ defineExpose({
   min-height: 0;
 }
 
+/* ── Picker (no modal — brand screen) ──────────── */
+.picker-screen:not(.picker-screen--modal) {
+  /* background: radial-gradient(#fc7765, #f57b35); */
+  /* border: 2px solid var(--text-light); */
+  border-radius: 24px;
+}
+
 /* ── Picker ───────────────────────────────────────── */
 .picker-screen,
 .live-screen {
   position: absolute;
+  z-index: 2;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -1727,9 +2316,42 @@ defineExpose({
   gap: 6px;
 }
 
+/* ── Top bar left section (undo) ──────────────── */
+.top-bar-left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 /* ── Top bar spacer pushes session btn right ──── */
 .top-bar-spacer {
   flex: 1;
+}
+
+/* ── Undo button ────────────────────────────────── */
+.undo-btn {
+  border: 2px var(--text-light) solid;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  color: var(--text-light);
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    transform 0.15s;
+}
+.undo-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.undo-btn:not(:disabled):hover {
+  opacity: 0.85;
 }
 
 /* ── Session button ───────────────────────────────── */
@@ -1776,24 +2398,21 @@ defineExpose({
 
 /* ── Student bubble preview (picker screen) ───────── */
 .student-bubble-preview {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 2px var(--stadium-yellow) solid;
-  background: none;
-  color: var(--stadium-yellow);
+  border-radius: 999px;
+  background: #457b9d;
+  color: var(--text-light);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  overflow: hidden;
+  padding: 8px 18px;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* ── Live layout ──────────────────────────────────── */
 .live-screen {
+  /* z-index: 3 !important; */
   background: var(--track-red);
   /* flex: 1; */
   /* display: flex;
@@ -1952,8 +2571,6 @@ defineExpose({
 /* ── Student wrapper ──────────────────────────────── */
 .student-wrapper {
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1969,50 +2586,43 @@ defineExpose({
   opacity: 0.25 !important;
 }
 
-/* ── Student bubble ───────────────────────────────── */
-.student-bubble {
-  border-radius: 50%;
-  border: 2px var(--text-light) solid;
-  background: none;
+/* ── Student bubble (label/pill) ──────────────────── */
+.student-bubble,
+.drag-clone {
+  border-radius: 999px;
+  /* border: 2px var(--text-light) solid; */
+  background: #457b9d;
   color: var(--text-light);
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   font-weight: 700;
-  line-height: 1.1;
-  transition:
-    width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-    height 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 0.3s ease,
-    font-size 0.3s ease;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  padding: 8px 18px;
+  transition: opacity 0.3s ease;
   pointer-events: none;
-  overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
-  padding: 2px;
 }
 
 /* ── Drag clone ───────────────────────────────────── */
 .drag-clone {
-  border-radius: 50%;
-  border: 2px var(--stadium-yellow) solid;
-  background: rgba(20, 10, 2, 0.85);
-  color: var(--stadium-yellow);
+  /* border-radius: 999px; */
+  border: 2px var(--text-light) solid;
+  /* background: rgba(20, 10, 2, 0.85); */
+  /* color: var(--stadium-yellow); */
 
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   font-weight: 700;
-  line-height: 1.1;
-  font-size: 8px;
+  font-size: 0.75rem;
+  /* line-height: 1.2; */
+  /* padding: 4px 12px; */
   transform: scale(1.15);
-  color: var(--stadium-yellow);
-  overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
-  padding: 2px;
 }
 
 /* ── Zone sub-segments (shown during drag) ─────────── */
@@ -2085,6 +2695,20 @@ defineExpose({
   transform: translateY(-50%);
 }
 
+/* ── Slide-edit transition (right to left) ──────────── */
+.slide-edit-enter-active,
+.slide-edit-leave-active {
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.slide-edit-enter-from {
+  transform: translateX(60px);
+  opacity: 0;
+}
+.slide-edit-leave-to {
+  transform: translateX(-60px);
+  opacity: 0;
+}
+
 .class-modal {
   width: 100vw;
   overflow: hidden;
@@ -2103,34 +2727,24 @@ defineExpose({
 }
 
 .class-modal-body::-webkit-scrollbar {
-  width: 8px;
+  width: 4px;
 }
 
 .class-modal-body::-webkit-scrollbar-track {
-  background: rgba(0, 40, 80, 0.3);
-  border-radius: 4px;
+  background: transparent;
 }
 
 .class-modal-body::-webkit-scrollbar-thumb {
-  background: rgba(0, 119, 254, 0.4);
-  border-radius: 4px;
-  transition: background 0.2s;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
 }
 
 .class-modal-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 119, 254, 0.6);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .class-edit-row {
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin: 0.35rem 1rem;
-  padding: 0.75rem 1.25rem;
-  border-radius: 16px;
-  /* background: rgba(0, 119, 254, 0.04); */
-  transition: background 0.15s;
+  padding: 0.75rem 0 0.75rem 1rem;
 }
 
 .class-name {
@@ -2203,12 +2817,28 @@ defineExpose({
   color: var(--text-light);
   /* opacity: 0.5; */
   cursor: pointer;
-  padding: 0.3rem;
+  padding: 0.45rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 12px;
   transition: all 0.2s;
+}
+
+.header-trash-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  transition: opacity 0.2s;
+}
+.header-trash-btn:hover {
+  opacity: 0.7;
 }
 
 .action-btn {
@@ -2253,46 +2883,122 @@ defineExpose({
   opacity: 0.8;
 }
 
+.eval-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.eval-label {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-light);
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.btn-icon:hover {
+  color: var(--text-light);
+  opacity: 0.85;
+  background: rgba(255, 215, 0, 0.15);
+  transform: scale(1.08);
+}
+.btn-icon--delete {
+  color: #fff;
+  opacity: 1;
+}
+.btn-icon--delete:hover {
+  color: var(--track-red);
+  opacity: 0.8;
+  background: rgba(255, 75, 75, 0.18);
+}
+
+.skill-name {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 0.25rem 0;
+  transition: opacity 0.15s;
+}
+.skill-name:hover {
+  opacity: 0.7;
+}
+
 /* ── Skills section (eval edit) ───────────────────── */
 .skills-section {
   width: 100%;
   margin-top: 1rem;
   padding-top: 0.75rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 .skills-header {
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.125rem;
   font-weight: 700;
-  color: var(--text-light);
-  opacity: 0.6;
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  color: #fff;
+  margin-bottom: 0.75rem;
+}
+.skills-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: #a8dadc42;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 .skill-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #a8dadc42;
+  color: var(--text-light);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  transition: background 0.15s;
+}
+.skill-row:hover {
+  background: #a8dadc80;
 }
 .skill-input {
   flex: 1;
-  padding: 0.4rem 0.6rem;
+  padding: 0.45rem 0.75rem;
   border-radius: 999px;
-  border: 1.5px solid rgba(255, 200, 80, 0.2);
-  background: rgba(20, 10, 2, 0.5);
+  border: 1.5px solid rgba(255, 215, 0, 0.2);
+  background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   outline: none;
   font-family: inherit;
   transition: border-color 0.2s;
   min-width: 0;
 }
 .skill-input:focus {
-  border-color: #e8a820;
+  border-color: var(--stadium-yellow);
+  background: rgba(33, 37, 41, 0.7);
 }
 .skill-scale-preview {
   font-size: 0.75rem;
@@ -2344,27 +3050,22 @@ defineExpose({
   margin-top: 0.2rem;
 }
 .add-skill-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  width: 100%;
-  padding: 0.5rem;
-  background: rgba(232, 168, 32, 0.06);
-  border: 1.5px dashed rgba(255, 200, 80, 0.2);
-  border-radius: 10px;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #a8dadc42;
   color: var(--text-light);
-  opacity: 0.6;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
   font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 .add-skill-btn:hover {
-  opacity: 1;
-  background: rgba(232, 168, 32, 0.12);
-  border-color: rgba(255, 200, 80, 0.4);
+  background: #a8dadc80;
 }
 
 .add-btn {
@@ -2410,17 +3111,37 @@ defineExpose({
   border-color: var(--court-blue);
 }
 
+.report-modal .back-btn {
+  color: var(--court-blue);
+}
+
+.export-btn {
+  background: none;
+  border: none;
+  color: var(--court-blue);
+  cursor: pointer;
+  padding: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  transition: opacity 0.2s;
+}
+.export-btn:hover {
+  opacity: 0.6;
+}
+.export-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .report-modal .report-loading,
 .report-modal .report-empty {
   color: var(--court-blue);
 }
 
-.report-modal .report-meta {
-  color: var(--court-blue);
-}
-
 .report-body {
-  padding: 0.5rem 1.5rem 1.5rem;
+  padding: 0.5rem 1rem 1.5rem;
   overflow-y: auto;
   flex: 1;
 }
@@ -2430,37 +3151,60 @@ defineExpose({
   text-align: center;
   padding: 3rem 1rem;
   color: var(--text-light);
-  opacity: 0.55;
   font-size: 1.1rem;
 }
 
-.report-meta {
+.report-chart {
+  margin-bottom: 1.25rem;
+}
+
+.report-chart-title {
   font-size: 0.85rem;
-  color: var(--text-light);
-  opacity: 0.55;
-  margin-bottom: 0.5rem;
-}
-
-.report-filter {
-  margin-bottom: 0.75rem;
-}
-
-.session-select {
-  padding: 0.4rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid rgba(20, 10, 2, 0.25);
-  background: rgba(255, 255, 255, 0.7);
   color: var(--court-blue);
-  opacity: 0.85;
-  font-size: 0.8rem;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  max-width: 100%;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
 }
 
-.session-select:focus {
-  border-color: rgba(232, 168, 32, 0.5);
+.report-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-axis-label {
+  fill: var(--court-blue);
+  font-size: 11px;
+  font-family: inherit;
+  opacity: 0.7;
+}
+
+.chart-axis-label-x {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  justify-content: center;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--court-blue);
+  font-weight: 600;
+}
+
+.chart-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .report-table {
@@ -2480,13 +3224,12 @@ defineExpose({
 .report-table thead th {
   background: rgba(38, 70, 83, 0.08);
   color: var(--court-blue);
-  opacity: 0.85;
   font-weight: 700;
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
+  font-size: 1.1rem;
+  /* letter-spacing: 0.05em; */
 }
 
-.report-th-student {
+.report-table .report-th-student {
   min-width: 120px;
   text-align: left;
 }
@@ -2496,16 +3239,14 @@ defineExpose({
   text-align: center;
 }
 
-.report-td-student {
+.report-table .report-td-student {
   text-align: left;
   color: var(--court-blue);
-  opacity: 0.85;
   font-weight: 600;
 }
 
 .report-td-count {
   color: var(--court-blue);
-  opacity: 0.65;
   font-weight: 600;
   font-size: 0.85rem;
   text-align: center;
@@ -2528,7 +3269,6 @@ defineExpose({
   gap: 5px;
   white-space: nowrap;
   color: var(--court-blue);
-  opacity: 0.7;
   flex: 1;
   min-width: 0;
 }
@@ -2561,23 +3301,41 @@ defineExpose({
 
 .stat-tilde {
   color: var(--court-blue);
-  opacity: 0.75;
   font-weight: 600;
   font-size: 0.85rem;
   line-height: 1;
 }
 
-.stat-last-big {
-  font-size: 0.96rem;
-  font-weight: 700;
-  color: var(--court-blue);
-  opacity: 0.9;
+/* ── Latest mark (distinguished subcolumn) ──────── */
+.stat-latest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--court-blue);
+  flex-shrink: 0;
+}
+
+.stat-latest-value {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-light);
   line-height: 1;
+}
+
+/* ── Group of min/max/avg/count ─────────────────── */
+.stat-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  flex: 1;
+  gap: 1px;
 }
 
 .stats-na {
   color: var(--court-blue);
-  opacity: 0.4;
   font-size: 0.8rem;
   font-style: italic;
 }
@@ -2592,13 +3350,11 @@ defineExpose({
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--court-blue);
-  opacity: 0.65;
   margin-bottom: 0.4rem;
 }
 
 .report-session-ended {
   color: var(--court-blue);
-  opacity: 0.45;
   font-weight: 400;
 }
 
@@ -2608,24 +3364,72 @@ defineExpose({
   font-size: 0.75rem;
 }
 
+.report-table .report-td-student--clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.report-table .report-td-student--clickable:hover {
+  opacity: 0.7;
+}
+
 .report-student-detail {
   display: flex;
-  gap: 0.6rem;
-  padding: 0.2rem 0;
-  font-size: 0.8rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
 }
 
-.report-detail-name {
+.report-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.82rem;
+}
+
+.report-detail-table th,
+.report-detail-table td {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(38, 70, 83, 0.15);
+  text-align: center;
+}
+
+.report-detail-table thead th {
+  background: rgba(38, 70, 83, 0.08);
   color: var(--court-blue);
-  opacity: 0.8;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.detail-th-date {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.detail-th-skill {
+  text-align: center;
+}
+
+.detail-td-date {
+  text-align: left;
+  white-space: nowrap;
+  color: var(--court-blue);
   font-weight: 600;
-  min-width: 100px;
 }
 
-.report-detail-skill {
+.detail-td-level {
   color: var(--court-blue);
-  opacity: 0.6;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.report-detail-table tbody tr:hover {
+  background: rgba(38, 70, 83, 0.04);
+}
+
+.report-detail-table .stats-na {
+  color: rgba(38, 70, 83, 0.25);
+  font-weight: 400;
 }
 </style>
 <style>
@@ -2720,25 +3524,33 @@ defineExpose({
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
 }
 .picker-panel--full > .class-modal-body,
 .picker-panel--full > .report-body {
+  width: 100%;
+  max-width: 800px;
   flex: 1;
   overflow-y: auto;
 }
 .picker-panel--full > .picker-panel-header {
+  width: 100%;
+  max-width: 800px;
   flex-shrink: 0;
 }
 
 .picker-screen--modal {
   margin: 0;
   border-radius: 0;
-  align-items: stretch;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   padding: 0;
 }
 .picker-panel-header {
-  padding: 1.2rem 1.5rem 0.6rem;
+  padding-top: 1.2rem;
+  padding-left: 1.5rem;
+  padding-right: 0.3rem;
+  /* padding: 1.2rem 1rem 0.6rem; */
   font-size: 1.7rem;
   font-weight: 700;
   color: var(--text-light);
@@ -2783,7 +3595,7 @@ defineExpose({
 }
 .picker-item {
   width: 100%;
-  /* display: inline-flex; */
+  display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -2826,25 +3638,22 @@ defineExpose({
 .picker-item--inline {
   width: auto;
   display: inline-flex;
-  padding: 0.5rem 1.5rem;
+  padding: 0.5rem;
+  aspect-ratio: 1;
 }
 
 .row-edit-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
+  background: none;
   color: var(--text-light);
   cursor: pointer;
-  transition: background 0.15s;
 }
 .row-edit-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  opacity: 0.7;
 }
 
 .picker-empty {

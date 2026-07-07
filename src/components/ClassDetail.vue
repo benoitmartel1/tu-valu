@@ -1,7 +1,15 @@
 <script setup>
 import { ref, onMounted, computed } from "vue";
 import { supabase } from "../supabase";
-import { Plus, Trash2, Edit2, X, Check, ArrowLeft, Upload } from "@lucide/vue";
+import {
+  Plus,
+  Trash2,
+  Edit2,
+  X,
+  Check,
+  ChevronLeft,
+  Upload,
+} from "@lucide/vue";
 
 const props = defineProps({
   classId: { type: String, default: null },
@@ -329,15 +337,6 @@ const parsedEntries = computed(() => {
 
 <template>
   <div class="class-detail">
-    <div class="detail-header">
-      <button class="back-btn" @click="$emit('close')">
-        <ArrowLeft :size="18" />
-      </button>
-      <span class="detail-title">
-        {{ isNewClass ? "Nouvelle classe" : className || "Chargement…" }}
-      </span>
-    </div>
-
     <!-- Loading -->
     <div v-if="loading && students.length === 0" class="detail-loading">
       Chargement…
@@ -346,22 +345,14 @@ const parsedEntries = computed(() => {
     <template v-else>
       <!-- Class name -->
       <div class="detail-section">
-        <label class="detail-label">Nom de la classe</label>
         <div class="class-name-row">
+          <label class="detail-label">Nom</label>
           <input
             v-model="className"
             class="detail-input"
             placeholder="Ex: 3A"
             @keyup.enter="saveClass"
           />
-          <button
-            v-if="!isNewClass"
-            class="btn btn-delete-class"
-            title="Supprimer la classe"
-            @click="deleteClass"
-          >
-            <Trash2 :size="16" />
-          </button>
         </div>
         <button
           v-if="!isNewClass && hasChanges"
@@ -376,7 +367,7 @@ const parsedEntries = computed(() => {
       <div class="detail-section">
         <label class="detail-label">
           Élèves
-          <span class="student-count">({{ students.length }})</span>
+          <span class="student-count">{{ students.length }}</span>
         </label>
 
         <div class="students-list">
@@ -384,6 +375,7 @@ const parsedEntries = computed(() => {
             v-for="student in students"
             :key="student.id"
             class="student-row"
+            :class="{ editing: student.editing }"
           >
             <template v-if="student.editing">
               <input
@@ -402,37 +394,30 @@ const parsedEntries = computed(() => {
                 @keyup.escape="cancelEditStudent(student)"
               />
               <button
-                class="btn-icon"
+                class="btn-icon btn-icon--confirm"
                 title="Confirmer"
                 @click="saveStudent(student)"
               >
-                <Check :size="15" />
+                <Check :size="24" />
               </button>
               <button
-                class="btn-icon"
+                class="btn-icon btn-icon--cancel"
                 title="Annuler"
                 @click="cancelEditStudent(student)"
               >
-                <X :size="15" />
+                <X :size="24" />
               </button>
             </template>
             <template v-else>
-              <span class="student-name"
-                >{{ student.firstname }} {{ student.lastname }}</span
-              >
-              <button
-                class="btn-icon"
-                title="Modifier"
-                @click="startEditStudent(student)"
-              >
-                <Edit2 :size="14" />
-              </button>
+              <span class="student-name" @click="startEditStudent(student)">
+                {{ student.firstname }} {{ student.lastname }}
+              </span>
               <button
                 class="btn-icon btn-icon--delete"
                 title="Supprimer"
                 @click="deleteStudent(student.id)"
               >
-                <Trash2 :size="14" />
+                <Trash2 :size="20" />
               </button>
             </template>
           </div>
@@ -516,8 +501,7 @@ const parsedEntries = computed(() => {
               :disabled="excelLoading || parsedEntries.length === 0"
               @click="confirmExcelImport"
             >
-              <Upload :size="16" />
-              {{ excelLoading ? "Import…" : "Ajouter à Supabase" }}
+              {{ excelLoading ? "Import…" : "Ajouter" }}
             </button>
             <button
               class="btn btn-excel-cancel"
@@ -561,18 +545,19 @@ const parsedEntries = computed(() => {
         <div class="add-actions">
           <button
             v-if="!addingStudent && !excelImportOpen"
-            class="btn btn-add"
+            class="btn-add-student"
+            title="Ajouter un élève"
             @click="addingStudent = true"
           >
-            <Plus :size="16" /> Ajouter un élève
+            <Plus :size="28" :stroke-width="3" />
           </button>
           <button
             v-if="!excelImportOpen"
-            class="btn btn-excel"
+            class="btn-add-student"
             title="Importer depuis Excel (copier-coller)"
             @click="handleExcelImport"
           >
-            <Upload :size="16" /> Importer d'Excel
+            <Upload :size="21" :stroke-width="3" />
           </button>
         </div>
       </div>
@@ -583,40 +568,6 @@ const parsedEntries = computed(() => {
 <style scoped>
 .class-detail {
   padding: 0 0 1rem;
-  color: var(--text-light);
-}
-
-.detail-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 200, 80, 0.08);
-  margin-bottom: 0.5rem;
-}
-
-.back-btn {
-  background: rgba(0, 119, 254, 0.08);
-  border: none;
-  color: var(--text-light);
-  opacity: 0.6;
-  cursor: pointer;
-  padding: 0.4rem;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-.back-btn:hover {
-  background: rgba(0, 119, 254, 0.18);
-  color: var(--text-light);
-  opacity: 0.85;
-}
-
-.detail-title {
-  font-size: 1.1rem;
-  font-weight: 700;
   color: var(--text-light);
 }
 
@@ -634,30 +585,42 @@ const parsedEntries = computed(() => {
 
 .detail-label {
   display: block;
-  font-size: 0.75rem;
+  font-size: 1.125rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text-light);
-  opacity: 0.55;
+  color: #fff;
   margin-bottom: 0.5rem;
 }
 
 .student-count {
-  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: #a8dadc42;
   font-size: 0.8rem;
-  margin-left: 0.3rem;
+  font-weight: 700;
+  margin-left: 0.4rem;
 }
 
 .class-name-row {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.class-name-row .detail-label {
+  margin-bottom: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .detail-input {
   flex: 1;
   padding: 0.6rem 0.75rem;
-  border-radius: 10px;
-  border: 1.5px solid rgba(255, 215, 0, 0.2);
+  border-radius: 999px;
+  /* border: 1.5px solid rgba(255, 215, 0, 0.2); */
   background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
   font-size: 0.95rem;
@@ -704,17 +667,6 @@ const parsedEntries = computed(() => {
   border-color: rgba(255, 215, 0, 0.4);
 }
 
-.btn-delete-class {
-  border-color: rgba(255, 75, 75, 0.3);
-  color: rgba(255, 75, 75, 0.7);
-  padding: 0.45rem 0.65rem;
-}
-.btn-delete-class:hover {
-  background: rgba(255, 75, 75, 0.18);
-  border-color: rgba(255, 75, 75, 0.5);
-  color: var(--track-red);
-}
-
 .btn-save-class {
   margin-top: 0.5rem;
   width: 100%;
@@ -730,17 +682,23 @@ const parsedEntries = computed(() => {
   opacity: 1;
 }
 
-.btn-add {
-  border-style: dashed;
+.btn-add-student {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #a8dadc42;
+  color: var(--text-light);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
 }
-.btn-excel {
-  border-color: rgba(80, 200, 120, 0.3);
-  color: rgba(100, 200, 130, 0.7);
-}
-.btn-excel:hover {
-  background: rgba(80, 200, 120, 0.15);
-  border-color: rgba(80, 200, 120, 0.5);
-  color: #80d8a0;
+.btn-add-student:hover {
+  background: #a8dadc80;
 }
 
 .btn-icon {
@@ -763,6 +721,16 @@ const parsedEntries = computed(() => {
   background: rgba(255, 215, 0, 0.15);
   transform: scale(1.08);
 }
+.btn-icon--confirm,
+.btn-icon--cancel {
+  color: #fff;
+  opacity: 1;
+}
+
+.btn-icon--delete {
+  color: #fff;
+  opacity: 1;
+}
 .btn-icon--delete:hover {
   color: var(--track-red);
   opacity: 0.8;
@@ -777,15 +745,26 @@ const parsedEntries = computed(() => {
 .student-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.75rem;
-  border-radius: 10px;
-  background: rgba(0, 119, 254, 0.04);
-  margin-bottom: 0.25rem;
-  transition: background 0.15s;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #a8dadc42;
+  color: var(--text-light);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  transition:
+    background 0.15s,
+    padding 0.2s ease;
 }
 .student-row:hover {
-  background: rgba(0, 119, 254, 0.08);
+  background: #a8dadc80;
+}
+.student-row.editing {
+  background: none;
+  padding: 10px 10px;
 }
 
 .student-name {
@@ -903,14 +882,14 @@ const parsedEntries = computed(() => {
 }
 
 .btn-excel-confirm {
-  border-color: rgba(80, 200, 120, 0.35);
-  color: rgba(100, 200, 130, 0.8);
-  background: rgba(80, 200, 120, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  background: transparent;
 }
 .btn-excel-confirm:hover {
-  background: rgba(80, 200, 120, 0.2);
-  border-color: rgba(80, 200, 120, 0.6);
-  color: #80d8a0;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
 }
 
 .btn-excel-cancel {
