@@ -5,19 +5,25 @@ import {
   X,
   Plus,
   Trash2,
-  SquarePen,
   BarChart3,
-  Play,
-  Square,
   Eye,
   ArrowLeft,
   ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   ChevronUp,
   Undo2,
   Download,
+  Check,
+  HatGlasses,
+  Funnel,
   createLucideIcon,
+  PenIcon,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
+import { skillIconNames } from "../data/skillIcons";
+
+const BASE = import.meta.env.BASE_URL; // "/tu-valu/"
 
 const Sneaker = createLucideIcon("Sneaker", [
   ["path", { d: "M14.1 7.9 12.5 10" }],
@@ -36,7 +42,6 @@ import ClassDetail from "./ClassDetail.vue";
 const classes = ref([]);
 const evaluations = ref([]);
 const selectedClassId = ref(null);
-const selectedEvaluationId = ref(null);
 const loading = ref(false);
 
 // ── Picker state ──────────────────────────────────────
@@ -47,15 +52,112 @@ const evalModalTab = ref("select"); // 'select' | 'edit'
 const classEditMode = ref(false);
 const evalEditMode = ref(false);
 
+// ── Checkbox selection state ───────────────────────────
+const checkedClassIds = ref(new Set());
+const checkedEvalIds = ref(new Set());
+const checkedStudentIds = ref(new Set());
+const checkedSkillIds = ref(new Set());
+const excludedStudentIds = ref(new Set()); // students excluded from a checked class
+const excludedSkillIds = ref(new Set()); // skills excluded from a checked evaluation
+
+function toggleChecked(id, type) {
+  let set;
+  if (type === "class") set = checkedClassIds.value;
+  else if (type === "eval") set = checkedEvalIds.value;
+  else if (type === "student") set = checkedStudentIds.value;
+  else if (type === "skill") set = checkedSkillIds.value;
+  if (set.has(id)) {
+    set.delete(id);
+  } else {
+    set.add(id);
+  }
+  // Trigger reactivity by reassigning
+  if (type === "class") checkedClassIds.value = new Set(set);
+  else if (type === "eval") checkedEvalIds.value = new Set(set);
+  else if (type === "student") checkedStudentIds.value = new Set(set);
+  else if (type === "skill") checkedSkillIds.value = new Set(set);
+}
+
+// ── Expand/collapse folder state ───────────────────────
+const expandedClassId = ref(null);
+const expandedEvalId = ref(null);
+const classStudentsCache = ref({});
+const evalSkillsCache = ref({});
+
+async function toggleClassExpand(cls) {
+  if (expandedClassId.value === cls.id) {
+    expandedClassId.value = null;
+    return;
+  }
+  expandedClassId.value = cls.id;
+  if (!classStudentsCache.value[cls.id]) {
+    const { data } = await supabase
+      .from("tu_students")
+      .select("id, firstname, lastname")
+      .eq("class_id", cls.id)
+      .order("firstname");
+    classStudentsCache.value = {
+      ...classStudentsCache.value,
+      [cls.id]: data || [],
+    };
+  }
+}
+
+async function toggleEvalExpand(ev) {
+  if (expandedEvalId.value === ev.id) {
+    expandedEvalId.value = null;
+    return;
+  }
+  expandedEvalId.value = ev.id;
+  if (!evalSkillsCache.value[ev.id]) {
+    const { data } = await supabase
+      .from("tu_skills")
+      .select("id, name, scale")
+      .eq("evaluation_id", ev.id)
+      .order("name");
+    evalSkillsCache.value = { ...evalSkillsCache.value, [ev.id]: data || [] };
+  }
+}
+
 // ── Class CRUD state ───────────────────────────────────
 const editingClassId = ref(null);
 const editingClassName = ref("");
 const isAddingNewClass = ref(false);
 const classDetailId = ref(null); // null | 'new' | classId — opens ClassDetail view
+const studentDetailId = ref(null); // null | studentId — opens student detail view
+const studentDetailData = ref(null); // { id, firstname, lastname, gender } loaded from DB
 
 // ── Evaluation CRUD state ──────────────────────────────
 const editingEvalId = ref(null);
 const editingEvalTitle = ref("");
+const skillDetailId = ref(null); // null | skillId — opens skill detail view
+const skillDetailData = ref(null); // { id, name, scale, icon } loaded from DB
+const showSkillIconPicker = ref(false);
+const iconPickerSearch = ref("");
+const filteredSkillIcons = computed(() => {
+  const q = iconPickerSearch.value.toLowerCase().trim();
+  if (!q) return skillIconNames;
+  return skillIconNames.filter((n) => n.includes(q));
+});
+function selectSkillIcon(iconName) {
+  if (!skillDetailData.value) return;
+  skillDetailData.value.icon = iconName;
+  showSkillIconPicker.value = false;
+  iconPickerSearch.value = "";
+  saveSkillDetail();
+}
+function toggleGlobalEditMode() {
+  if (
+    classModalOpen.value &&
+    classDetailId.value === null &&
+    studentDetailId.value === null
+  ) {
+    classEditMode.value = !classEditMode.value;
+  } else if (evalModalOpen.value && skillDetailId.value === null) {
+    evalEditMode.value = !evalEditMode.value;
+  }
+}
+
 const isAddingNewEval = ref(false);
 const editingSkills = ref([]); // skills for the evaluation being edited
 const editingNewSkillName = ref("");
@@ -66,76 +168,24 @@ const showNewSkillForm = ref(false);
 const editingSkillIndex = ref(null); // null = adding new, number = editing skill at this index
 
 // ── Live state ────────────────────────────────────────
-const view = ref("select");
 const students = ref([]);
 const classStudents = ref([]); // students preview when only class is selected
 const skills = ref([]);
 const counts = ref({}); // { studentId: { skillId: count } } — all events
-const sessionCounts = ref({}); // { studentId: { skillId: count } } — only current session
 const usedLevels = ref({}); // { studentId: { skillId: { level: true } } }
 const levelCounts = ref({}); // { studentId: { skillId: { level: count } } }
-
-// ── Session system ─────────────────────────────────────
-const activeSession = ref(null); // { id, class_id, evaluation_id, started_at, ended_at }
-const sessionLoading = ref(false);
-const isSessionActive = computed(
-  () => activeSession.value && !activeSession.value.ended_at,
-);
-
-async function toggleSession() {
-  if (isSessionActive.value) {
-    await stopPlaySession();
-  } else {
-    await startPlaySession();
-  }
-}
-
-async function startPlaySession() {
-  if (!selectedClassId.value || !selectedEvaluationId.value) return;
-  sessionLoading.value = true;
-  try {
-    const { data, error } = await supabase
-      .from("tu_sessions")
-      .insert({
-        class_id: selectedClassId.value,
-        evaluation_id: selectedEvaluationId.value,
-      })
-      .select()
-      .single();
-    if (error) throw error;
-    activeSession.value = data;
-  } catch (err) {
-    console.error("Failed to start session:", err);
-  } finally {
-    sessionLoading.value = false;
-  }
-}
-
-async function stopPlaySession() {
-  if (!activeSession.value) return;
-  sessionLoading.value = true;
-  try {
-    const { error } = await supabase
-      .from("tu_sessions")
-      .update({ ended_at: new Date().toISOString() })
-      .eq("id", activeSession.value.id);
-    if (error) throw error;
-    activeSession.value = {
-      ...activeSession.value,
-      ended_at: new Date().toISOString(),
-    };
-  } catch (err) {
-    console.error("Failed to stop session:", err);
-  } finally {
-    sessionLoading.value = false;
-  }
-}
 
 // ── Drag-and-drop state ───────────────────────────────
 const drag = ref(null); // { student, startX, startY, currentX, currentY, offsetX, offsetY, width, height }
 const hoveredSkillId = ref(null);
 const dropFlash = ref(null); // skillId that just received a drop
 const hoveredLevel = ref(null); // level label being hovered within a zone
+const hoveredAbsent = ref(false); // whether drag is over the absent zone
+
+// ── Students row filter state ─────────────────────────
+const filterPanelOpen = ref(false);
+const sortBy = ref("firstname"); // 'firstname' | 'lastname'
+const genderFilter = ref("all"); // 'all' | 'male' | 'female' (data not yet in DB)
 
 onMounted(async () => {
   const [{ data: cls }, { data: evs }] = await Promise.all([
@@ -151,7 +201,7 @@ async function selectClass(id) {
   classModalOpen.value = false;
   // Load students for the picker preview (even without an evaluation)
   await loadClassStudents(id);
-  if (selectedEvaluationId.value) startSession();
+  if (hasEvalSelection.value) startSession();
 }
 
 async function loadClassStudents(classId) {
@@ -227,7 +277,6 @@ async function deleteClass(id) {
   if (selectedClassId.value === id) {
     selectedClassId.value = null;
     classStudents.value = [];
-    view.value = "select";
   }
 }
 
@@ -252,25 +301,41 @@ function onClassDetailDeleted() {
   if (deletedId !== "new" && selectedClassId.value === deletedId) {
     selectedClassId.value = null;
     classStudents.value = [];
-    view.value = "select";
+  }
+}
+
+async function handleRemoveStudent(studentId) {
+  await supabase
+    .from("tu_students")
+    .update({ class_id: null })
+    .eq("id", studentId);
+  // Refresh the class detail to reflect the change
+  if (classDetailId.value && classDetailId.value !== "new") {
+    // The ClassDetail component will re-load via its own mechanism
+    // Re-open the detail by toggling classDetailId
+    const id = classDetailId.value;
+    classDetailId.value = null;
+    await nextTick();
+    classDetailId.value = id;
   }
 }
 
 function clearClassSelection() {
   selectedClassId.value = null;
   classStudents.value = [];
-  if (view.value !== "select") view.value = "select";
 }
 
 function clearEvalSelection() {
-  selectedEvaluationId.value = null;
-  if (view.value !== "select") view.value = "select";
+  checkedEvalIds.value = new Set();
+  checkedSkillIds.value = new Set();
+  excludedSkillIds.value = new Set();
+  skills.value = [];
 }
 
 function selectEval(id) {
-  selectedEvaluationId.value = id;
+  toggleChecked(id, "eval");
   evalModalOpen.value = false;
-  if (selectedClassId.value) startSession();
+  if (hasStudentSelection.value) startSession();
 }
 
 function openEvalModal() {
@@ -290,25 +355,11 @@ function openEvalModal() {
 }
 
 function handleClassClick(cls) {
-  if (classEditMode.value) {
-    classDetailId.value = cls.id;
-  } else if (selectedClassId.value === cls.id) {
-    clearClassSelection();
-    classModalOpen.value = false;
-  } else {
-    selectClass(cls.id);
-  }
+  toggleClassExpand(cls);
 }
 
 function handleEvalClick(ev) {
-  if (evalEditMode.value) {
-    startEvalEdit(ev);
-  } else if (selectedEvaluationId.value === ev.id) {
-    clearEvalSelection();
-    evalModalOpen.value = false;
-  } else {
-    selectEval(ev.id);
-  }
+  toggleEvalExpand(ev);
 }
 
 // ── Evaluation CRUD ────────────────────────────────────
@@ -337,7 +388,7 @@ async function loadEvalSkills(evalId) {
   }
   const { data } = await supabase
     .from("tu_skills")
-    .select("id, name, scale")
+    .select("id, name, scale, icon")
     .eq("evaluation_id", evalId)
     .order("name");
   editingSkills.value = data || [];
@@ -469,46 +520,151 @@ async function deleteEval(id) {
   if (!confirm("Êtes-vous sûr?")) return;
   await supabase.from("tu_evaluations").delete().eq("id", id);
   evaluations.value = evaluations.value.filter((e) => e.id !== id);
-  if (selectedEvaluationId.value === id) {
-    selectedEvaluationId.value = null;
-  }
+  checkedEvalIds.value.delete(id);
+  checkedEvalIds.value = new Set(checkedEvalIds.value);
+  // Also clean up cached skills
+  delete evalSkillsCache.value[id];
+  evalSkillsCache.value = { ...evalSkillsCache.value };
 }
 
 async function startSession() {
-  if (!selectedClassId.value || !selectedEvaluationId.value) return;
+  if (!hasStudentSelection.value) return;
   loading.value = true;
 
-  const [{ data: stu }, { data: ski }, { data: events }] = await Promise.all([
-    supabase
-      .from("tu_students")
-      .select("id, firstname, lastname")
-      .eq("class_id", selectedClassId.value)
-      .order("firstname"),
-    supabase
-      .from("tu_skills")
-      .select("id, name, scale")
-      .eq("evaluation_id", selectedEvaluationId.value),
-    supabase
-      .from("tu_session_events")
-      .select("student_id, skill_id, level, session_id")
-      .eq("class_id", selectedClassId.value)
-      .eq("evaluation_id", selectedEvaluationId.value),
-  ]);
+  // Load students from all checked classes (minus excluded) and individually checked students
+  const classIds = [...checkedClassIds.value];
+  const excluded = excludedStudentIds.value;
 
-  skills.value = ski || [];
+  // Load students from each checked class
+  const studentsMap = new Map();
+  if (classIds.length > 0) {
+    for (const cid of classIds) {
+      await ensureClassStudentsLoaded(cid);
+      for (const s of classStudentsCache.value[cid] || []) {
+        if (!excluded.has(s.id)) {
+          studentsMap.set(s.id, s);
+        }
+      }
+    }
+  }
+
+  // Also add individually checked students not already included
+  if (checkedStudentIds.value.size > 0) {
+    for (const students of Object.values(classStudentsCache.value)) {
+      for (const s of students) {
+        if (checkedStudentIds.value.has(s.id) && !studentsMap.has(s.id)) {
+          studentsMap.set(s.id, s);
+        }
+      }
+    }
+  }
+
+  const stu = [...studentsMap.values()].sort((a, b) =>
+    (a.firstname || "").localeCompare(b.firstname || ""),
+  );
+
+  // ── Determine which evaluations are relevant ────────────
+  const relevantEvalIds = new Set([...checkedEvalIds.value]);
+
+  // Also include evals of individually checked skills
+  if (checkedSkillIds.value.size > 0) {
+    // Check the cache first
+    for (const [evalId, skills] of Object.entries(evalSkillsCache.value)) {
+      for (const sk of skills) {
+        if (checkedSkillIds.value.has(sk.id)) {
+          relevantEvalIds.add(evalId);
+          break;
+        }
+      }
+    }
+    // For any individually checked skills not found in cache, load their eval_id from DB
+    const foundSkillIds = new Set();
+    for (const skills of Object.values(evalSkillsCache.value)) {
+      for (const sk of skills) {
+        if (checkedSkillIds.value.has(sk.id)) {
+          foundSkillIds.add(sk.id);
+        }
+      }
+    }
+    const missingSkillIds = [...checkedSkillIds.value].filter(
+      (id) => !foundSkillIds.has(id),
+    );
+    if (missingSkillIds.length > 0) {
+      const { data: missingSkills } = await supabase
+        .from("tu_skills")
+        .select("id, evaluation_id")
+        .in("id", missingSkillIds);
+      if (missingSkills) {
+        for (const sk of missingSkills) {
+          relevantEvalIds.add(sk.evaluation_id);
+        }
+      }
+    }
+  }
+
+  if (relevantEvalIds.size === 0 && checkedSkillIds.value.size === 0) {
+    skills.value = [];
+    students.value = stu;
+    counts.value = {};
+    usedLevels.value = {};
+    levelCounts.value = {};
+    loading.value = false;
+    return;
+  }
+
+  // ── Load skills from all relevant evals ────────────────
+  const skillsQuery = supabase
+    .from("tu_skills")
+    .select("id, name, scale, evaluation_id, icon");
+
+  if (relevantEvalIds.size > 0) {
+    skillsQuery.in("evaluation_id", [...relevantEvalIds]);
+  }
+
+  // ── Load events for all relevant evals and classes ─────
+  let eventsQuery = supabase
+    .from("tu_session_events")
+    .select("student_id, skill_id, level, session_id");
+
+  if (relevantEvalIds.size > 0) {
+    eventsQuery = eventsQuery.in("evaluation_id", [...relevantEvalIds]);
+  }
+
+  if (classIds.length > 0) {
+    eventsQuery = eventsQuery.in("class_id", classIds);
+  }
+
+  const [skillsRes, eventsRes] = await Promise.all([skillsQuery, eventsQuery]);
+
+  // Filter skills to only show selected ones
+  const allSkills = skillsRes.data || [];
+  const selectedSkills = allSkills.filter((sk) => {
+    // Skill is selected if individually checked
+    if (checkedSkillIds.value.has(sk.id)) return true;
+    // Or if its eval is checked and it's not excluded
+    if (
+      checkedEvalIds.value.has(sk.evaluation_id) &&
+      !excludedSkillIds.value.has(sk.id)
+    )
+      return true;
+    return false;
+  });
+  const selectedSkillIdSet = new Set(selectedSkills.map((sk) => sk.id));
+
+  skills.value = selectedSkills;
+  const events = (eventsRes.data || []).filter((e) =>
+    selectedSkillIdSet.has(e.skill_id),
+  );
 
   const c = {};
-  const sc = {};
   const ul = {};
   const lc = {};
-  for (const s of stu || []) {
+  for (const s of stu) {
     c[s.id] = {};
-    sc[s.id] = {};
     ul[s.id] = {};
     lc[s.id] = {};
   }
-  const activeSid = activeSession.value?.id;
-  for (const ev of events || []) {
+  for (const ev of events) {
     if (!c[ev.student_id]) c[ev.student_id] = {};
     if (!ul[ev.student_id]) ul[ev.student_id] = {};
     if (!lc[ev.student_id]) lc[ev.student_id] = {};
@@ -520,42 +676,37 @@ async function startSession() {
       lc[ev.student_id][ev.skill_id][ev.level] =
         (lc[ev.student_id][ev.skill_id][ev.level] || 0) + 1;
     }
-    // track current-session counts only
-    if (ev.session_id === activeSid) {
-      if (!sc[ev.student_id]) sc[ev.student_id] = {};
-      sc[ev.student_id][ev.skill_id] =
-        (sc[ev.student_id][ev.skill_id] || 0) + 1;
-    }
   }
   counts.value = c;
-  sessionCounts.value = sc;
   usedLevels.value = ul;
   levelCounts.value = lc;
 
-  students.value = stu || [];
+  students.value = stu;
   loading.value = false;
-  view.value = "active";
 }
 
 // ── Sorted students ───────────────────────────────────
 const sortedStudents = computed(() =>
-  [...students.value].sort((a, b) =>
-    (a.firstname || "").localeCompare(b.firstname || ""),
-  ),
+  [...students.value].sort((a, b) => {
+    const field = sortBy.value === "lastname" ? "lastname" : "firstname";
+    return (a[field] || "").localeCompare(b[field] || "");
+  }),
 );
 
 // ── Session evaluation stats ──────────────────────────
 const maxSessionCount = computed(() => {
+  // Read counts.value explicitly to ensure dependency tracking
+  void counts.value;
   let max = 0;
   for (const s of students.value) {
-    max = Math.max(max, totalCount(s.id));
+    max = Math.max(max, studentTotalCount(s.id));
   }
   return max;
 });
 
 // ── Evaluation helpers ────────────────────────────────
-function totalCount(studentId) {
-  return Object.values(sessionCounts.value[studentId] || {}).reduce(
+function studentTotalCount(studentId) {
+  return Object.values(counts.value[studentId] || {}).reduce(
     (a, b) => a + b,
     0,
   );
@@ -578,12 +729,20 @@ function hasUsedLevel(studentId, skillId, level) {
 }
 
 // ── Opacity helper ─────────────────────────────────────
-function studentOpacity(studentId) {
-  const count = totalCount(studentId);
+const studentOpacityMap = computed(() => {
+  void counts.value;
+  void students.value;
+  const map = {};
   const max = maxSessionCount.value;
-  if (max === 0) return 1;
-  // Interpolate: least-evaluated → 1 (100%), most-evaluated → 0.2 (20%)
-  return 1 - (count / max) * 0.8;
+  for (const s of students.value) {
+    const count = studentTotalCount(s.id);
+    map[s.id] = max === 0 ? 1 : 1 - (count / max) * 0.8;
+  }
+  return map;
+});
+
+function studentOpacity(studentId) {
+  return studentOpacityMap.value[studentId] ?? 1;
 }
 
 // ── Drag-and-drop ─────────────────────────────────────
@@ -600,6 +759,7 @@ function onDragMove(e) {
   hoveredSkillId.value = zone ? zone.dataset.skillId : null;
   const seg = el?.closest("[data-level]");
   hoveredLevel.value = seg ? seg.dataset.level : null;
+  hoveredAbsent.value = !!el?.closest("[data-absent-zone]");
 }
 
 function onDragCancel() {
@@ -611,6 +771,7 @@ function onDragCancel() {
   drag.value = null;
   hoveredSkillId.value = null;
   hoveredLevel.value = null;
+  hoveredAbsent.value = false;
 }
 
 function onDragEnd() {
@@ -623,6 +784,44 @@ function onDragEnd() {
   if (!drag.value) return;
 
   const studentId = drag.value.student.id;
+
+  // Check if dropped on the absent zone
+  const dropEl = document.elementFromPoint(
+    drag.value.currentX,
+    drag.value.currentY,
+  );
+  if (dropEl?.closest("[data-absent-zone]")) {
+    const absentStudent = students.value.find((s) => s.id === studentId);
+    if (absentStudent) {
+      // Find which class this student belongs to
+      let foundClass = null;
+      for (const cls of classes.value) {
+        const cached = classStudentsCache.value[cls.id];
+        if (cached?.some((s) => s.id === studentId)) {
+          foundClass = cls;
+          break;
+        }
+      }
+      if (foundClass && checkedClassIds.value.has(foundClass.id)) {
+        // Student is from a checked class → exclude them
+        const newExcluded = new Set(excludedStudentIds.value);
+        newExcluded.add(studentId);
+        excludedStudentIds.value = newExcluded;
+      } else {
+        // Individually checked student → uncheck them
+        const wasChecked = checkedStudentIds.value.has(studentId);
+        if (wasChecked) {
+          toggleChecked(studentId, "student");
+        }
+      }
+      if (hasEvalSelection.value) startSession();
+    }
+    drag.value = null;
+    hoveredSkillId.value = null;
+    hoveredLevel.value = null;
+    return;
+  }
+
   const skillId = hoveredSkillId.value;
 
   if (skillId && hoveredLevel.value) {
@@ -636,15 +835,6 @@ function onDragEnd() {
       [skillId]: (newCounts[studentId][skillId] || 0) + 1,
     };
     counts.value = newCounts;
-
-    // update current-session counts
-    const newSC = { ...sessionCounts.value };
-    if (!newSC[studentId]) newSC[studentId] = {};
-    newSC[studentId] = {
-      ...newSC[studentId],
-      [skillId]: (newSC[studentId][skillId] || 0) + 1,
-    };
-    sessionCounts.value = newSC;
 
     // track used levels
     const newUsed = { ...usedLevels.value };
@@ -673,16 +863,16 @@ function onDragEnd() {
     }, 400);
 
     // insert event
+    const primaryClassId =
+      [...checkedClassIds.value][0] || selectedClassId.value;
+    const skill = skills.value.find((s) => s.id === skillId);
     const eventPayload = {
-      class_id: selectedClassId.value,
-      evaluation_id: selectedEvaluationId.value,
+      class_id: primaryClassId,
+      evaluation_id: skill?.evaluation_id || [...checkedEvalIds.value][0],
       student_id: studentId,
       skill_id: skillId,
       level: level,
     };
-    if (activeSession.value) {
-      eventPayload.session_id = activeSession.value.id;
-    }
     supabase
       .from("tu_session_events")
       .insert(eventPayload)
@@ -700,6 +890,10 @@ function onDragEnd() {
           level,
           eventId: data.id,
         });
+        // Refresh report data if the report modal is open
+        if (reportModalOpen.value) {
+          loadReportData();
+        }
       })
       .catch((err) => console.error("Failed to save event:", err));
 
@@ -722,6 +916,7 @@ function onDragEnd() {
   drag.value = null;
   hoveredSkillId.value = null;
   hoveredLevel.value = null;
+  hoveredAbsent.value = false;
 }
 
 function onDragStart(e, student) {
@@ -770,22 +965,6 @@ async function undoLastAction() {
     }
   }
   counts.value = newCounts;
-
-  // Revert session counts
-  const newSC = { ...sessionCounts.value };
-  if (newSC[studentId]) {
-    newSC[studentId] = { ...newSC[studentId] };
-    if (newSC[studentId][skillId] != null) {
-      newSC[studentId][skillId] -= 1;
-      if (newSC[studentId][skillId] <= 0) {
-        delete newSC[studentId][skillId];
-      }
-    }
-    if (Object.keys(newSC[studentId]).length === 0) {
-      delete newSC[studentId];
-    }
-  }
-  sessionCounts.value = newSC;
 
   // Revert per-level count
   const newLC = { ...levelCounts.value };
@@ -854,13 +1033,221 @@ const cloneStyle = computed(() => {
   };
 });
 
+// ── Eval ID → title lookup ────────────────────────────
+const evalNameById = computed(() => {
+  const map = {};
+  for (const ev of evaluations.value) {
+    map[ev.id] = ev.title;
+  }
+  return map;
+});
+
 // ── Session metadata ──────────────────────────────────
-const selectedEvaluation = computed(() =>
-  evaluations.value.find((e) => e.id === selectedEvaluationId.value),
-);
+const selectedEvaluation = computed(() => {
+  // Return the first checked eval for display purposes
+  const firstId = [...checkedEvalIds.value][0];
+  return firstId ? evaluations.value.find((e) => e.id === firstId) : null;
+});
 const selectedClass = computed(() =>
   classes.value.find((c) => c.id === selectedClassId.value),
 );
+
+// ── Selection-based student list ───────────────────────
+// Union of: all students from checked classes (minus excluded) + individually checked students
+const selectedStudentList = computed(() => {
+  const map = new Map();
+  const excluded = excludedStudentIds.value;
+  // Students from checked classes (minus excluded)
+  for (const classId of checkedClassIds.value) {
+    const students = classStudentsCache.value[classId] || [];
+    for (const s of students) {
+      if (!excluded.has(s.id)) {
+        map.set(s.id, s);
+      }
+    }
+  }
+  // Individually checked students (from any class)
+  if (checkedStudentIds.value.size > 0) {
+    for (const students of Object.values(classStudentsCache.value)) {
+      for (const s of students) {
+        if (checkedStudentIds.value.has(s.id) && !map.has(s.id)) {
+          map.set(s.id, s);
+        }
+      }
+    }
+  }
+  return [...map.values()];
+});
+
+const hasStudentSelection = computed(
+  () => checkedClassIds.value.size > 0 || checkedStudentIds.value.size > 0,
+);
+
+const hasEvalSelection = computed(
+  () => checkedEvalIds.value.size > 0 || checkedSkillIds.value.size > 0,
+);
+
+const evalSelectionSummary = computed(() => {
+  const evalCount = checkedEvalIds.value.size;
+  const skillCount = checkedSkillIds.value.size;
+  if (evalCount === 0 && skillCount === 0) return "";
+  const parts = [];
+  if (evalCount > 0) {
+    const names = [...checkedEvalIds.value]
+      .map((id) => evaluations.value.find((e) => e.id === id))
+      .filter(Boolean)
+      .map((e) => e.title);
+    if (names.length <= 2) {
+      parts.push(names.join(" · "));
+    } else {
+      parts.push(`${names[0]} +${evalCount - 1}`);
+    }
+  }
+  if (skillCount > 0 && evalCount === 0) {
+    parts.push(`${skillCount} habileté${skillCount > 1 ? "s" : ""}`);
+  }
+  return parts.join(" · ");
+});
+
+const selectionSummary = computed(() => {
+  const classCount = checkedClassIds.value.size;
+  const extraStudentCount = checkedStudentIds.value.size;
+  if (classCount === 0 && extraStudentCount === 0) return "";
+  const parts = [];
+  if (classCount > 0) {
+    parts.push(`${classCount} groupe${classCount > 1 ? "s" : ""}`);
+  }
+  if (extraStudentCount > 0) {
+    parts.push(`${extraStudentCount} élève${extraStudentCount > 1 ? "s" : ""}`);
+  }
+  return parts.join(" · ");
+});
+
+async function ensureClassStudentsLoaded(classId) {
+  if (classStudentsCache.value[classId]) return;
+  const { data } = await supabase
+    .from("tu_students")
+    .select("id, firstname, lastname, class_id")
+    .eq("class_id", classId)
+    .order("firstname");
+  classStudentsCache.value = {
+    ...classStudentsCache.value,
+    [classId]: data || [],
+  };
+}
+
+async function handleClassCheck(cls) {
+  // Ensure students are loaded when checking a class
+  await ensureClassStudentsLoaded(cls.id);
+  const wasChecked = checkedClassIds.value.has(cls.id);
+  toggleChecked(cls.id, "class");
+  // Clear any excluded students for this class
+  const students = classStudentsCache.value[cls.id] || [];
+  const newExcluded = new Set(excludedStudentIds.value);
+  for (const s of students) {
+    newExcluded.delete(s.id);
+  }
+  excludedStudentIds.value = newExcluded;
+
+  if (wasChecked) {
+    // Unchecking — clear students from live view if none selected
+    if (
+      checkedClassIds.value.size === 0 &&
+      checkedStudentIds.value.size === 0
+    ) {
+      students.value = [];
+    } else if (hasEvalSelection.value) {
+      startSession();
+    }
+  } else if (hasEvalSelection.value) {
+    // Checking — reload live view
+    startSession();
+  }
+}
+
+function handleStudentCheck(cls, student) {
+  if (checkedClassIds.value.has(cls.id)) {
+    // Class is checked — toggle this student's exclusion
+    const newExcluded = new Set(excludedStudentIds.value);
+    if (newExcluded.has(student.id)) {
+      newExcluded.delete(student.id);
+    } else {
+      newExcluded.add(student.id);
+    }
+    excludedStudentIds.value = newExcluded;
+  } else {
+    // Class is not checked — toggle individual student
+    const wasChecked = checkedStudentIds.value.has(student.id);
+    toggleChecked(student.id, "student");
+    if (
+      wasChecked &&
+      checkedStudentIds.value.size === 0 &&
+      checkedClassIds.value.size === 0
+    ) {
+      students.value = [];
+      return;
+    }
+  }
+  // Reload live view to reflect exclusion changes
+  if (hasEvalSelection.value) startSession();
+}
+
+async function handleEvalCheck(ev) {
+  // Ensure skills are loaded when checking an eval
+  if (!evalSkillsCache.value[ev.id]) {
+    const { data } = await supabase
+      .from("tu_skills")
+      .select("id, name, scale, icon")
+      .eq("evaluation_id", ev.id)
+      .order("name");
+    evalSkillsCache.value = { ...evalSkillsCache.value, [ev.id]: data || [] };
+  }
+  const wasChecked = checkedEvalIds.value.has(ev.id);
+  toggleChecked(ev.id, "eval");
+  // Clear any excluded skills for this eval
+  const evSkills = evalSkillsCache.value[ev.id] || [];
+  const newExcluded = new Set(excludedSkillIds.value);
+  for (const sk of evSkills) {
+    newExcluded.delete(sk.id);
+  }
+  excludedSkillIds.value = newExcluded;
+
+  if (wasChecked) {
+    // Unchecking — clear live view if no eval or skill remains selected
+    if (!hasEvalSelection.value) {
+      students.value = [];
+      skills.value = [];
+      counts.value = {};
+      usedLevels.value = {};
+      levelCounts.value = {};
+      // Close report if it was open
+      reportModalOpen.value = false;
+    } else if (hasStudentSelection.value) {
+      startSession();
+    }
+  } else if (hasStudentSelection.value) {
+    // Checking — reload live view
+    startSession();
+  }
+}
+
+function handleSkillCheck(ev, skill) {
+  if (checkedEvalIds.value.has(ev.id)) {
+    // Eval is checked — toggle this skill's exclusion
+    const newExcluded = new Set(excludedSkillIds.value);
+    if (newExcluded.has(skill.id)) {
+      newExcluded.delete(skill.id);
+    } else {
+      newExcluded.add(skill.id);
+    }
+    excludedSkillIds.value = newExcluded;
+  } else {
+    // Eval is not checked — toggle individual skill
+    toggleChecked(skill.id, "skill");
+  }
+  // Reload live view to reflect skill changes
+  if (hasEvalSelection.value && hasStudentSelection.value) startSession();
+}
 
 // ── Editing class title (for the ClassDetail modal header) ─
 const editingClassTitle = computed(() => {
@@ -870,6 +1257,268 @@ const editingClassTitle = computed(() => {
     return cls?.name || "Chargement…";
   }
   return "Groupes";
+});
+
+// ── Detail view names (for student/skill sub-views) ──────
+const studentDetailName = computed(() => {
+  if (!studentDetailId.value) return "";
+  for (const cls of classes.value) {
+    const students = classStudentsCache.value[cls.id] || [];
+    const found = students.find((s) => s.id === studentDetailId.value);
+    if (found) return `${found.firstname} ${found.lastname}`;
+  }
+  return "";
+});
+
+function getInitials(firstname, lastname) {
+  return (firstname?.[0] || "") + (lastname?.[0] || "");
+}
+
+// ── Student detail form ──────────────────────────────────
+watch(studentDetailId, async (id) => {
+  if (!id) {
+    studentDetailData.value = null;
+    return;
+  }
+  const { data } = await supabase
+    .from("tu_students")
+    .select("id, firstname, lastname, gender")
+    .eq("id", id)
+    .single();
+  studentDetailData.value = data || {
+    firstname: "",
+    lastname: "",
+    gender: null,
+  };
+});
+
+async function saveStudentDetail() {
+  if (!studentDetailData.value || !studentDetailId.value) return;
+  const { firstname, lastname, gender } = studentDetailData.value;
+  if (!firstname?.trim() && !lastname?.trim()) return;
+  const { error } = await supabase
+    .from("tu_students")
+    .update({
+      firstname: firstname.trim(),
+      lastname: lastname.trim(),
+      gender: gender || null,
+    })
+    .eq("id", studentDetailId.value);
+  if (error) {
+    console.error("Failed to save student:", error);
+    return;
+  }
+  // Update cache
+  for (const cls of classes.value) {
+    const cache = classStudentsCache.value[cls.id];
+    if (cache) {
+      const idx = cache.findIndex((s) => s.id === studentDetailId.value);
+      if (idx !== -1) {
+        cache[idx] = {
+          ...cache[idx],
+          firstname: firstname.trim(),
+          lastname: lastname.trim(),
+        };
+        classStudentsCache.value = { ...classStudentsCache.value };
+        break;
+      }
+    }
+  }
+  // Reload live view if active
+  if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+}
+
+function toggleGender(value) {
+  if (!studentDetailData.value) return;
+  studentDetailData.value.gender =
+    studentDetailData.value.gender === value ? null : value;
+  saveStudentDetail();
+}
+
+async function deleteStudentFromDetail() {
+  if (!studentDetailId.value) return;
+  if (!confirm("Supprimer cet élève ?")) return;
+  const { error } = await supabase
+    .from("tu_students")
+    .delete()
+    .eq("id", studentDetailId.value);
+  if (error) {
+    console.error("Failed to delete student:", error);
+    return;
+  }
+  // Remove from cache
+  for (const cls of classes.value) {
+    const cache = classStudentsCache.value[cls.id];
+    if (cache) {
+      const idx = cache.findIndex((s) => s.id === studentDetailId.value);
+      if (idx !== -1) {
+        cache.splice(idx, 1);
+        classStudentsCache.value = { ...classStudentsCache.value };
+        break;
+      }
+    }
+  }
+  // Also remove from classStudents
+  classStudents.value = classStudents.value.filter(
+    (s) => s.id !== studentDetailId.value,
+  );
+  // Reload live view if active
+  if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+  studentDetailId.value = null;
+}
+
+// ── Skill detail form ───────────────────────────────────
+watch(skillDetailId, (id) => {
+  showSkillIconPicker.value = false;
+  iconPickerSearch.value = "";
+});
+watch(skillDetailId, async (id) => {
+  if (!id) {
+    skillDetailData.value = null;
+    return;
+  }
+  const { data } = await supabase
+    .from("tu_skills")
+    .select("id, name, scale")
+    .eq("id", id)
+    .single();
+  skillDetailData.value = data || {
+    name: "",
+    scale: ["1", "2", "3", "4", "5"],
+  };
+});
+
+async function saveSkillDetail() {
+  if (!skillDetailData.value || !skillDetailId.value) return;
+  const { name, scale, icon } = skillDetailData.value;
+  if (!name?.trim()) return;
+  const { error } = await supabase
+    .from("tu_skills")
+    .update({ name: name.trim(), scale, icon: icon || null })
+    .eq("id", skillDetailId.value);
+  if (error) {
+    console.error("Failed to save skill:", error);
+    return;
+  }
+  // Update cache
+  for (const ev of evaluations.value) {
+    const cache = evalSkillsCache.value[ev.id];
+    if (cache) {
+      const idx = cache.findIndex((s) => s.id === skillDetailId.value);
+      if (idx !== -1) {
+        cache[idx] = {
+          ...cache[idx],
+          name: name.trim(),
+          scale,
+          icon: skillDetailData.value.icon || null,
+        };
+        evalSkillsCache.value = { ...evalSkillsCache.value };
+        break;
+      }
+    }
+  }
+  // Reload live view if active
+  if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+}
+
+const skillMin = computed(() => {
+  const s = skillDetailData.value?.scale;
+  if (!s || s.length === 0) return 1;
+  return Math.min(...s.map(Number).filter((n) => !isNaN(n)));
+});
+
+const skillMax = computed(() => {
+  const s = skillDetailData.value?.scale;
+  if (!s || s.length === 0) return 5;
+  return Math.max(...s.map(Number).filter((n) => !isNaN(n)));
+});
+
+const skillStep = computed(() => {
+  const s = skillDetailData.value?.scale;
+  if (!s || s.length < 2) return 1;
+  const nums = s.map(Number).filter((n) => !isNaN(n));
+  return nums.length > 1 ? nums[1] - nums[0] : 1;
+});
+
+function skillMinEdit(e) {
+  const val = parseFloat(e.target.value);
+  if (isNaN(val)) return;
+  const max = skillMax.value;
+  if (val >= max) return;
+  const step = skillStep.value;
+  const scale = [];
+  for (let v = val; v <= max; v += step) {
+    scale.push(String(v));
+  }
+  skillDetailData.value.scale = scale;
+  saveSkillDetail();
+}
+
+function skillMaxEdit(e) {
+  const val = parseFloat(e.target.value);
+  if (isNaN(val)) return;
+  const min = skillMin.value;
+  if (val <= min) return;
+  const step = skillStep.value;
+  const scale = [];
+  for (let v = min; v <= val; v += step) {
+    scale.push(String(v));
+  }
+  skillDetailData.value.scale = scale;
+  saveSkillDetail();
+}
+
+function skillStepEdit(e) {
+  const val = parseFloat(e.target.value);
+  if (isNaN(val) || val <= 0) return;
+  const min = skillMin.value;
+  const max = skillMax.value;
+  const scale = [];
+  for (let v = min; v <= max; v += val) {
+    scale.push(String(v));
+  }
+  skillDetailData.value.scale = scale;
+  saveSkillDetail();
+}
+
+async function deleteSkillFromDetail() {
+  if (!skillDetailId.value) return;
+  if (!confirm("Supprimer cette habileté ?")) return;
+  const { error } = await supabase
+    .from("tu_skills")
+    .delete()
+    .eq("id", skillDetailId.value);
+  if (error) {
+    console.error("Failed to delete skill:", error);
+    return;
+  }
+  // Remove from cache
+  for (const ev of evaluations.value) {
+    const cache = evalSkillsCache.value[ev.id];
+    if (cache) {
+      const idx = cache.findIndex((s) => s.id === skillDetailId.value);
+      if (idx !== -1) {
+        cache.splice(idx, 1);
+        evalSkillsCache.value = { ...evalSkillsCache.value };
+        break;
+      }
+    }
+  }
+  // Also remove from skills live view
+  skills.value = skills.value.filter((s) => s.id !== skillDetailId.value);
+  // Reload live view if active
+  if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+  skillDetailId.value = null;
+}
+
+const skillDetailName = computed(() => {
+  if (!skillDetailId.value) return "";
+  for (const ev of evaluations.value) {
+    const skills = evalSkillsCache.value[ev.id] || [];
+    const found = skills.find((s) => s.id === skillDetailId.value);
+    if (found) return found.name;
+  }
+  return "";
 });
 
 // ── Undo history ────────────────────────────────────────
@@ -884,9 +1533,8 @@ const liveAnimating = ref(false);
 watch(
   () => [classModalOpen.value, evalModalOpen.value, reportModalOpen.value],
   ([curClass, curEval, curReport], [prevClass, prevEval, prevReport]) => {
-    // When any modal closes while the live view is active
+    // Re-trigger enter animation when any modal closes
     if (
-      view.value === "active" &&
       (prevClass || prevEval || prevReport) &&
       !(curClass || curEval || curReport)
     ) {
@@ -917,42 +1565,103 @@ const filteredEvents = computed(() => {
   return all.filter((e) => e.session_id === selectedSessionId.value);
 });
 
-async function openReport() {
-  if (reportModalOpen.value) {
-    reportModalOpen.value = false;
-    return;
+// Map student id → class id from the cache
+const studentClassMap = computed(() => {
+  const map = {};
+  for (const [classId, students] of Object.entries(classStudentsCache.value)) {
+    for (const s of students) {
+      map[s.id] = classId;
+    }
   }
-  if (!selectedClassId.value || !selectedEvaluationId.value) return;
-  // Close any other open modal first
-  classModalOpen.value = false;
-  evalModalOpen.value = false;
-  reportLoading.value = true;
-  reportModalOpen.value = true;
-  selectedSessionId.value = null; // reset filter
+  // Also cover individually-picked students whose class might not be in cache
+  for (const sid of checkedStudentIds.value) {
+    if (!map[sid]) {
+      // Try to find them in any class cache
+      for (const students of Object.values(classStudentsCache.value)) {
+        const found = students.find((s) => s.id === sid);
+        if (found) {
+          map[sid] = found.class_id;
+          break;
+        }
+      }
+    }
+  }
+  return map;
+});
+
+// Group report students by class for the table
+const reportStudentsByClass = computed(() => {
+  if (!reportData.value) return [];
+  const groups = {};
+  for (const s of reportData.value.students) {
+    const classId = studentClassMap.value[s.id];
+    if (!groups[classId]) {
+      const cls = classes.value.find((c) => c.id === classId);
+      groups[classId] = {
+        classId,
+        className: cls?.name || "Autre",
+        students: [],
+      };
+    }
+    groups[classId].students.push(s);
+  }
+  return Object.values(groups);
+});
+
+async function loadReportData() {
+  const classIds = [...checkedClassIds.value];
+  // Student IDs currently selected for the live view
+  const selectedStudentIds = new Set(
+    selectedStudentList.value.map((s) => s.id),
+  );
+  // Skill IDs currently selected for the live view
+  const selectedSkillIds = new Set(skills.value.map((sk) => sk.id));
+
+  // Determine relevant eval IDs for the report (same logic as startSession)
+  const relevantEvalIdsForReport = new Set([...checkedEvalIds.value]);
+  for (const [evalId, skills] of Object.entries(evalSkillsCache.value)) {
+    for (const sk of skills) {
+      if (checkedSkillIds.value.has(sk.id)) {
+        relevantEvalIdsForReport.add(evalId);
+        break;
+      }
+    }
+  }
 
   try {
+    // Build events query — class filter is optional (supports individually picked students)
+    let eventsQuery = supabase
+      .from("tu_session_events")
+      .select("student_id, skill_id, level, session_id, created_at");
+
+    if (classIds.length > 0) {
+      eventsQuery = eventsQuery.in("class_id", classIds);
+    }
+    eventsQuery = eventsQuery
+      .in("evaluation_id", [...relevantEvalIdsForReport])
+      .in("student_id", [...selectedStudentIds])
+      .in("skill_id", [...selectedSkillIds])
+      .order("created_at", { ascending: true });
+
     const [sessionsRes, studentsRes, skillsRes, eventsRes] = await Promise.all([
-      supabase
-        .from("tu_sessions")
-        .select("id, started_at, ended_at")
-        .eq("class_id", selectedClassId.value)
-        .eq("evaluation_id", selectedEvaluationId.value)
-        .order("started_at", { ascending: true }),
+      classIds.length > 0
+        ? supabase
+            .from("tu_sessions")
+            .select("id, started_at, ended_at")
+            .in("class_id", classIds)
+            .in("evaluation_id", [...relevantEvalIdsForReport])
+            .order("started_at", { ascending: true })
+        : { data: [] },
       supabase
         .from("tu_students")
-        .select("id, firstname, lastname")
-        .eq("class_id", selectedClassId.value)
+        .select("id, firstname, lastname, class_id")
+        .in("id", [...selectedStudentIds])
         .order("firstname"),
       supabase
         .from("tu_skills")
-        .select("id, name, scale")
-        .eq("evaluation_id", selectedEvaluationId.value),
-      supabase
-        .from("tu_session_events")
-        .select("student_id, skill_id, level, session_id, created_at")
-        .eq("class_id", selectedClassId.value)
-        .eq("evaluation_id", selectedEvaluationId.value)
-        .order("created_at", { ascending: true }),
+        .select("id, name, scale, icon")
+        .in("id", [...selectedSkillIds]),
+      eventsQuery,
     ]);
 
     reportData.value = {
@@ -963,6 +1672,24 @@ async function openReport() {
     };
   } catch (err) {
     console.error("Failed to load report:", err);
+  }
+}
+
+async function openReport() {
+  if (reportModalOpen.value) {
+    reportModalOpen.value = false;
+    return;
+  }
+  if (!hasStudentSelection.value || !hasEvalSelection.value) return;
+  // Close any other open modal first
+  classModalOpen.value = false;
+  evalModalOpen.value = false;
+  reportLoading.value = true;
+  reportModalOpen.value = true;
+  selectedSessionId.value = null; // reset filter
+
+  try {
+    await loadReportData();
   } finally {
     reportLoading.value = false;
   }
@@ -1218,15 +1945,18 @@ function exportReport() {
       : s;
   };
 
-  const header = ["Élève", ...skills.map((sk) => sk.name)];
+  const header = ["Classe", "Élève", ...skills.map((sk) => sk.name)];
   const rows = students.map((s) => {
+    const classId = studentClassMap.value[s.id];
+    const cls = classes.value.find((c) => c.id === classId);
+    const className = cls?.name || "";
     const name = `${s.firstname} ${s.lastname}`;
     const vals = skills.map((sk) => {
       const st = stats[s.id]?.[sk.id];
       if (!st) return "";
       return `${st.nb} (min:${st.min} max:${st.max} moy:${st.avg.toFixed(1)} dernier:${st.last})`;
     });
-    return [name, ...vals];
+    return [className, name, ...vals];
   });
 
   const csv = [header, ...rows].map((r) => r.map(esc).join(",")).join("\n");
@@ -1237,7 +1967,11 @@ function exportReport() {
   const a = document.createElement("a");
   a.href = url;
   const classLabel = selectedClass.value?.name || "classe";
-  const evalLabel = selectedEvaluation.value?.title || "evaluation";
+  const evalLabel =
+    selectedEvaluation.value?.title ||
+    (checkedEvalIds.value.size > 0
+      ? `activites-${checkedEvalIds.value.size}`
+      : "evaluation");
   a.download = `${classLabel}_${evalLabel}_rapport.csv`;
   document.body.appendChild(a);
   a.click();
@@ -1249,7 +1983,7 @@ defineExpose({
   openClassModal,
   openEvalModal,
   selectedClass,
-  selectedEvaluation,
+  hasEvalSelection,
 });
 </script>
 
@@ -1271,15 +2005,15 @@ defineExpose({
         <button
           class="fab"
           :class="{
-            'fab--filled': !!selectedClass,
+            'fab--filled': hasStudentSelection,
             'fab--modal-open': classModalOpen,
           }"
           title="Classes"
           @click="openClassModal()"
         >
-          <template v-if="selectedClass">
+          <template v-if="hasStudentSelection">
             <Users :size="18" />
-            <span class="fab-selected-name">{{ selectedClass.name }}</span>
+            <span class="fab-selected-name">{{ selectionSummary }}</span>
           </template>
           <template v-else>
             <Users :size="18" />
@@ -1288,17 +2022,15 @@ defineExpose({
         <button
           class="fab fab--eval"
           :class="{
-            'fab--filled': !!selectedEvaluation,
+            'fab--filled': hasEvalSelection,
             'fab--modal-open': evalModalOpen,
           }"
           title="Évaluations"
           @click="openEvalModal()"
         >
-          <template v-if="selectedEvaluation">
+          <template v-if="hasEvalSelection">
             <Sneaker :size="18" />
-            <span class="fab-selected-name">{{
-              selectedEvaluation.title
-            }}</span>
+            <span class="fab-selected-name">{{ evalSelectionSummary }}</span>
           </template>
           <template v-else>
             <Sneaker :size="18" />
@@ -1309,7 +2041,7 @@ defineExpose({
         <button
           class="fab"
           :class="{ 'fab--modal-report': reportModalOpen }"
-          :disabled="!selectedClassId || !selectedEvaluationId"
+          :disabled="!hasStudentSelection || !hasEvalSelection"
           title="Rapport"
           @click="openReport"
         >
@@ -1318,37 +2050,32 @@ defineExpose({
       </div>
       <div class="top-bar-spacer"></div>
 
-      <!-- Session play / stop -->
       <button
-        class="fab session-btn"
-        :class="{
-          'session--active': isSessionActive,
-          'session--loading': sessionLoading,
-        }"
-        :title="isSessionActive ? 'Arrêter la session' : 'Démarrer une session'"
-        :disabled="!selectedClassId || !selectedEvaluationId || sessionLoading"
-        @click="toggleSession"
+        class="modifier-toggle"
+        :class="{ active: classEditMode || evalEditMode }"
+        :disabled="!classModalOpen && !evalModalOpen"
+        @click="toggleGlobalEditMode"
+        title="Mode modification"
       >
-        <template v-if="sessionLoading">
-          <span class="session-spinner"></span>
-        </template>
-        <template v-else-if="isSessionActive">
-          <Square :size="14" />
-        </template>
-        <template v-else>
-          <Play :size="16" />
-        </template>
+        <span v-show="classEditMode || evalEditMode" class="mode-edition-label"
+          >Mode Édition</span
+        >
+        <PenIcon :size="16" />
       </button>
     </div>
 
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
     <div class="main-content">
-      <!-- LIVE SCREEN (bottom layer) -->
-      <div v-if="view === 'active'" class="live-screen">
+      <!-- LIVE SCREEN (always visible) -->
+      <div class="live-screen">
         <!-- Drop zones -->
         <div
+          v-if="skills.length > 0 && students.length > 0"
           class="zones-container"
-          :class="{ 'zones-container--enter': liveAnimating }"
+          :class="{
+            'zones-container--enter': liveAnimating,
+            'zones-container--grid': skills.length > 3,
+          }"
         >
           <div
             v-for="skill in skills"
@@ -1366,7 +2093,18 @@ defineExpose({
             :data-skill-id="skill.id"
           >
             <div class="zone-header">
-              <span class="zone-name">{{ skill.name }}</span>
+              <span class="zone-name">
+                <span class="zone-eval-name">{{
+                  evalNameById[skill.evaluation_id]
+                }}</span>
+                <img
+                  v-if="skill.icon"
+                  :src="`${BASE}icons/skills/${skill.icon}.svg`"
+                  class="zone-skill-icon"
+                  alt=""
+                />
+                <span class="zone-skill-name">{{ skill.name }}</span>
+              </span>
             </div>
 
             <div class="zone-segments">
@@ -1405,8 +2143,14 @@ defineExpose({
               </div>
             </div>
           </div>
-          <div v-if="skills.length === 0" class="zones-empty">
-            No skills defined for this evaluation.
+        </div>
+        <div v-else class="zones-empty">
+          <div class="brand">
+            <img class="hero-img" src="/tu-hero.png" alt="" />
+            <!-- <div class="brand-name">Tuvalu</div> -->
+          </div>
+          <div class="bubble">
+            Sélectionnez une classe et une activité pour commencer
           </div>
         </div>
 
@@ -1431,16 +2175,36 @@ defineExpose({
             :class="{ 'class-modal--editing': classEditMode }"
           >
             <div class="picker-panel-header">
-              <div v-if="classDetailId !== null" class="header-left">
+              <div v-if="studentDetailId !== null" class="header-left">
+                <button class="back-btn" @click="studentDetailId = null">
+                  <ChevronLeft :size="36" :stroke-width="3" />
+                </button>
+                <span>{{ studentDetailName }}</span>
+              </div>
+              <div v-else-if="classDetailId !== null" class="header-left">
                 <button class="back-btn" @click="classDetailId = null">
                   <ChevronLeft :size="36" :stroke-width="3" />
                 </button>
                 <span>{{ editingClassTitle }}</span>
               </div>
-              <span v-else>Groupes</span>
+              <span v-else class="header-title-group">
+                <span>Groupes</span>
+              </span>
               <div class="header-actions">
                 <button
-                  v-if="classDetailId !== null && classDetailId !== 'new'"
+                  v-if="studentDetailId !== null"
+                  class="header-trash-btn"
+                  title="Supprimer l'élève"
+                  @click="deleteStudentFromDetail"
+                >
+                  <Trash2 :size="24" />
+                </button>
+                <button
+                  v-if="
+                    classDetailId !== null &&
+                    classDetailId !== 'new' &&
+                    studentDetailId === null
+                  "
                   class="header-trash-btn"
                   title="Supprimer la classe"
                   @click="deleteClass(classDetailId)"
@@ -1455,39 +2219,197 @@ defineExpose({
 
             <div class="class-modal-body">
               <Transition name="slide-edit" mode="out-in">
+                <div
+                  v-if="studentDetailId !== null && studentDetailData"
+                  key="student-detail"
+                  class="student-detail-form"
+                >
+                  <div class="student-detail-layout">
+                    <!-- Photo placeholder -->
+                    <div class="student-detail-photo">
+                      <div class="student-photo-circle">
+                        <span class="student-photo-initials">{{
+                          getInitials(
+                            studentDetailData.firstname,
+                            studentDetailData.lastname,
+                          )
+                        }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Right column: fields -->
+                    <div class="student-detail-fields">
+                      <div class="detail-section">
+                        <label class="detail-label">Prénom</label>
+                        <input
+                          v-model="studentDetailData.firstname"
+                          class="detail-input"
+                          placeholder="Prénom"
+                          @blur="saveStudentDetail"
+                        />
+                      </div>
+                      <div class="detail-section">
+                        <label class="detail-label">Nom</label>
+                        <input
+                          v-model="studentDetailData.lastname"
+                          class="detail-input"
+                          placeholder="Nom"
+                          @blur="saveStudentDetail"
+                        />
+                      </div>
+                      <div class="detail-section">
+                        <label class="detail-label">Sexe</label>
+                        <div class="gender-selector">
+                          <button
+                            class="gender-btn"
+                            :class="{
+                              active: studentDetailData.gender === 'M',
+                            }"
+                            @click="toggleGender('M')"
+                          >
+                            M
+                          </button>
+                          <button
+                            class="gender-btn"
+                            :class="{
+                              active: studentDetailData.gender === 'F',
+                            }"
+                            @click="toggleGender('F')"
+                          >
+                            F
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <ClassDetail
-                  v-if="classDetailId !== null"
+                  v-else-if="classDetailId !== null"
                   key="edit"
                   :class-id="classDetailId === 'new' ? null : classDetailId"
                   @close="classDetailId = null"
                   @saved="onClassDetailSaved"
                   @deleted="onClassDetailDeleted"
+                  @edit-student="studentDetailId = $event"
+                  @remove-student="handleRemoveStudent"
                 />
                 <div v-else key="list">
-                  <div
-                    v-for="cls in classes"
-                    :key="cls.id"
-                    class="picker-item-row"
-                  >
-                    <button
-                      class="picker-item"
-                      :class="{ selected: selectedClassId === cls.id }"
-                      @click="handleClassClick(cls)"
-                    >
-                      <span>{{ cls.name }}</span>
-                      <span
-                        class="row-edit-btn"
-                        title="Modifier"
-                        @click.stop="classDetailId = cls.id"
+                  <!-- ── Class rows ──────────────────────────────── -->
+                  <div v-for="cls in classes" :key="cls.id">
+                    <div class="picker-item-row">
+                      <button
+                        class="picker-item"
+                        :class="{
+                          selected:
+                            !classEditMode && selectedClassId === cls.id,
+                          'folder-row': true,
+                          expanded: expandedClassId === cls.id,
+                        }"
+                        @click="handleClassClick(cls)"
                       >
-                        <SquarePen :size="22" />
-                      </span>
-                    </button>
+                        <span class="picker-header-row">
+                          <span class="folder-label-wrap">
+                            <ChevronRight
+                              v-if="expandedClassId !== cls.id"
+                              :size="20"
+                              :stroke-width="3"
+                              class="folder-chevron"
+                            />
+                            <ChevronDown
+                              v-else
+                              :size="20"
+                              :stroke-width="3"
+                              class="folder-chevron"
+                            />
+                            <span>{{ cls.name }}</span>
+                          </span>
+                          <template v-if="classEditMode">
+                            <span
+                              class="row-edit-btn"
+                              title="Modifier"
+                              @click.stop="classDetailId = cls.id"
+                            >
+                              <PenIcon :size="22" />
+                            </span>
+                          </template>
+                          <template v-else>
+                            <span
+                              class="row-checkbox"
+                              :class="{ checked: checkedClassIds.has(cls.id) }"
+                              @click.stop="handleClassCheck(cls)"
+                            >
+                              <Check
+                                v-if="checkedClassIds.has(cls.id)"
+                                :size="18"
+                              />
+                            </span>
+                          </template>
+                        </span>
+                        <!-- Expanded students -->
+                        <div
+                          @click.stop
+                          v-if="expandedClassId === cls.id"
+                          class="nested-items"
+                        >
+                          <div
+                            v-if="!classStudentsCache[cls.id]?.length"
+                            class="nested-empty"
+                          >
+                            Aucun élève
+                          </div>
+                          <div
+                            v-for="student in classStudentsCache[cls.id] || []"
+                            :key="student.id"
+                            class="picker-item-row nested-row"
+                          >
+                            <button
+                              class="picker-item picker-item--nested"
+                              @click="studentDetailId = student.id"
+                            >
+                              <span
+                                >{{ student.firstname }}
+                                {{ student.lastname }}</span
+                              >
+                              <template v-if="classEditMode">
+                                <span
+                                  class="row-edit-btn"
+                                  title="Modifier"
+                                  @click.stop="studentDetailId = student.id"
+                                >
+                                  <PenIcon :size="18" />
+                                </span>
+                              </template>
+                              <template v-else>
+                                <span
+                                  class="row-checkbox"
+                                  :class="{
+                                    checked:
+                                      checkedStudentIds.has(student.id) ||
+                                      (checkedClassIds.has(cls.id) &&
+                                        !excludedStudentIds.has(student.id)),
+                                  }"
+                                  @click.stop="handleStudentCheck(cls, student)"
+                                >
+                                  <Check
+                                    v-if="
+                                      checkedStudentIds.has(student.id) ||
+                                      (checkedClassIds.has(cls.id) &&
+                                        !excludedStudentIds.has(student.id))
+                                    "
+                                    :size="18"
+                                  />
+                                </span>
+                              </template>
+                            </button>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                   <div v-if="classes.length === 0" class="picker-empty">
                     Aucune classe
                   </div>
-                  <div class="picker-item-row">
+                  <div v-if="classEditMode" class="picker-item-row">
                     <button
                       class="picker-item picker-item--inline"
                       @click="classDetailId = 'new'"
@@ -1510,7 +2432,14 @@ defineExpose({
             <div class="picker-panel-header">
               <div class="header-left">
                 <button
-                  v-if="editingEvalId || isAddingNewEval"
+                  v-if="skillDetailId !== null"
+                  class="back-btn"
+                  @click="skillDetailId = null"
+                >
+                  <ChevronLeft :size="36" :stroke-width="3" />
+                </button>
+                <button
+                  v-else-if="editingEvalId || isAddingNewEval"
                   class="back-btn"
                   @click="
                     cancelEvalEdit();
@@ -1519,12 +2448,23 @@ defineExpose({
                 >
                   <ChevronLeft :size="36" :stroke-width="3" />
                 </button>
-                <span v-if="editingEvalId && !isAddingNewEval">{{
+                <span v-if="skillDetailId !== null">{{ skillDetailName }}</span>
+                <span v-else-if="editingEvalId && !isAddingNewEval">{{
                   editingEvalTitle
                 }}</span>
-                <span v-else>Activités</span>
+                <span v-else class="header-title-group">
+                  <span>Activités</span>
+                </span>
               </div>
               <div class="header-actions">
+                <button
+                  v-if="skillDetailId !== null"
+                  class="header-trash-btn"
+                  title="Supprimer l'habileté"
+                  @click="deleteSkillFromDetail"
+                >
+                  <Trash2 :size="24" />
+                </button>
                 <button
                   v-if="editingEvalId && !isAddingNewEval"
                   class="header-trash-btn"
@@ -1545,7 +2485,115 @@ defineExpose({
 
             <div class="class-modal-body">
               <Transition name="slide-edit" mode="out-in">
-                <div v-if="editingEvalId || isAddingNewEval" key="edit">
+                <div
+                  v-if="skillDetailId !== null && skillDetailData"
+                  key="skill-detail"
+                  class="skill-detail-form"
+                >
+                  <div class="skill-detail-layout">
+                    <!-- Icon picker -->
+                    <div class="skill-detail-icon">
+                      <div
+                        class="skill-icon-circle"
+                        :class="{ 'picker-open': showSkillIconPicker }"
+                        @click="showSkillIconPicker = !showSkillIconPicker"
+                        title="Choisir une icône"
+                      >
+                        <img
+                          v-if="skillDetailData.icon"
+                          :src="`${BASE}icons/skills/${skillDetailData.icon}.svg`"
+                          class="skill-icon-img"
+                          alt=""
+                        />
+                        <span v-else class="skill-icon-letter">?</span>
+                      </div>
+                      <div v-if="showSkillIconPicker" class="icon-picker">
+                        <div class="icon-picker-search">
+                          <input
+                            v-model="iconPickerSearch"
+                            class="icon-picker-input"
+                            placeholder="Chercher une icône…"
+                            autofocus
+                          />
+                        </div>
+                        <div class="icon-picker-grid">
+                          <button
+                            v-for="iconName in filteredSkillIcons"
+                            :key="iconName"
+                            class="icon-picker-option"
+                            :class="{
+                              selected: skillDetailData.icon === iconName,
+                            }"
+                            @click="selectSkillIcon(iconName)"
+                            :title="iconName"
+                          >
+                            <img
+                              :src="`${BASE}icons/skills/${iconName}.svg`"
+                              class="icon-picker-img"
+                              alt=""
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Right column: fields -->
+                    <div class="skill-detail-fields">
+                      <div class="detail-section">
+                        <label class="detail-label">Nom</label>
+                        <input
+                          v-model="skillDetailData.name"
+                          class="detail-input"
+                          placeholder="Nom de l'habileté"
+                          @blur="saveSkillDetail"
+                        />
+                      </div>
+                      <div class="detail-section">
+                        <label class="detail-label">Échelle d'évaluation</label>
+                        <div class="skill-scale-config">
+                          <label class="scale-field">
+                            <span class="scale-label">Min</span>
+                            <input
+                              :value="skillMin"
+                              type="number"
+                              class="scale-input"
+                              min="0"
+                              @change="skillMinEdit($event)"
+                            />
+                          </label>
+                          <label class="scale-field">
+                            <span class="scale-label">Max</span>
+                            <input
+                              :value="skillMax"
+                              type="number"
+                              class="scale-input"
+                              min="0"
+                              @change="skillMaxEdit($event)"
+                            />
+                          </label>
+                          <label class="scale-field">
+                            <span class="scale-label">Pas</span>
+                            <input
+                              :value="skillStep"
+                              type="number"
+                              class="scale-input"
+                              min="0.1"
+                              step="0.1"
+                              @change="skillStepEdit($event)"
+                            />
+                          </label>
+                        </div>
+                        <div class="scale-preview">
+                          <span class="scale-preview-label">Aperçu :</span>
+                          <span class="scale-preview-values">
+                            {{ skillDetailData.scale?.join(" · ") }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else-if="editingEvalId || isAddingNewEval" key="edit">
                   <template v-if="isAddingNewEval">
                     <div class="class-edit-row">
                       <input
@@ -1593,26 +2641,31 @@ defineExpose({
                             :key="sk.id || si"
                             class="skill-row"
                           >
+                            <img
+                              v-if="sk.icon"
+                              :src="`${BASE}icons/skills/${sk.icon}.svg`"
+                              class="skill-row-icon"
+                              alt=""
+                            />
                             <span
                               class="skill-name"
-                              @click="startEditSkill(sk, si)"
+                              @click="skillDetailId = sk.id"
                             >
                               {{ sk.name }}
                             </span>
                             <span class="skill-scale-preview">
                               {{ sk.scale?.[0] || "?" }} →
-                              {{ sk.scale?.[sk.scale.length - 1] || "?" }} ({{
-                                sk.scale?.length || 0
-                              }}
+                              {{ sk.scale?.[sk.scale.length - 1] || "?" }}
+                              ({{ sk.scale?.length || 0 }}
                               niveaux)
                             </span>
-                            <button
-                              class="btn-icon btn-icon--delete"
-                              title="Supprimer"
-                              @click="removeSkill(sk, si)"
-                            >
-                              <Trash2 :size="20" />
-                            </button>
+                            <span class="skill-row-actions">
+                              <PenIcon
+                                :size="20"
+                                @click="skillDetailId = sk.id"
+                              />
+                              <X :size="20" @click="removeSkill(sk, si)" />
+                            </span>
                           </div>
 
                           <template v-if="showNewSkillForm">
@@ -1678,30 +2731,132 @@ defineExpose({
                 </div>
 
                 <div v-else key="list">
-                  <div
-                    v-for="ev in evaluations"
-                    :key="ev.id"
-                    class="picker-item-row"
-                  >
-                    <button
-                      class="picker-item"
-                      :class="{ selected: selectedEvaluationId === ev.id }"
-                      @click="handleEvalClick(ev)"
-                    >
-                      <span>{{ ev.title }}</span>
-                      <span
-                        class="row-edit-btn"
-                        title="Modifier"
-                        @click.stop="startEvalEdit(ev)"
+                  <!-- ── Eval rows ───────────────────────────────── -->
+                  <div v-for="ev in evaluations" :key="ev.id">
+                    <div class="picker-item-row">
+                      <button
+                        class="picker-item"
+                        :class="{
+                          selected:
+                            !evalEditMode &&
+                            checkedEvalIds.has(ev.id) &&
+                            checkedEvalIds.size === 1,
+                          'folder-row': true,
+                          expanded: expandedEvalId === ev.id,
+                        }"
+                        @click="handleEvalClick(ev)"
                       >
-                        <SquarePen :size="22" />
-                      </span>
-                    </button>
+                        <span class="picker-header-row">
+                          <span class="folder-label-wrap">
+                            <ChevronRight
+                              v-if="expandedEvalId !== ev.id"
+                              :size="20"
+                              :stroke-width="3"
+                              class="folder-chevron"
+                            />
+                            <ChevronDown
+                              v-else
+                              :size="20"
+                              :stroke-width="3"
+                              class="folder-chevron"
+                            />
+                            <span>{{ ev.title }}</span>
+                          </span>
+                          <template v-if="evalEditMode">
+                            <span
+                              class="row-edit-btn"
+                              title="Modifier"
+                              @click.stop="startEvalEdit(ev)"
+                            >
+                              <PenIcon :size="22" />
+                            </span>
+                          </template>
+                          <template v-else>
+                            <span
+                              class="row-checkbox"
+                              :class="{ checked: checkedEvalIds.has(ev.id) }"
+                              @click.stop="handleEvalCheck(ev)"
+                            >
+                              <Check
+                                v-if="checkedEvalIds.has(ev.id)"
+                                :size="18"
+                              />
+                            </span>
+                          </template>
+                        </span>
+                        <!-- Expanded skills -->
+                        <div
+                          @click.stop
+                          v-if="expandedEvalId === ev.id"
+                          class="nested-items"
+                        >
+                          <div
+                            v-if="!evalSkillsCache[ev.id]?.length"
+                            class="nested-empty"
+                          >
+                            Aucune habileté
+                          </div>
+                          <div
+                            v-for="skill in evalSkillsCache[ev.id] || []"
+                            :key="skill.id"
+                            class="picker-item-row nested-row"
+                          >
+                            <button
+                              class="picker-item picker-item--nested"
+                              @click="skillDetailId = skill.id"
+                            >
+                              <img
+                                v-if="skill.icon"
+                                :src="`${BASE}icons/skills/${skill.icon}.svg`"
+                                class="picker-item-icon"
+                                alt=""
+                              />
+                              <span>{{ skill.name }}</span>
+                              <span class="skill-scale-badge">
+                                {{ skill.scale?.[0] || "?" }}→{{
+                                  skill.scale?.[skill.scale.length - 1] || "?"
+                                }}
+                              </span>
+                              <template v-if="evalEditMode">
+                                <span
+                                  class="row-edit-btn"
+                                  title="Modifier"
+                                  @click.stop="skillDetailId = skill.id"
+                                >
+                                  <PenIcon :size="18" />
+                                </span>
+                              </template>
+                              <template v-else>
+                                <span
+                                  class="row-checkbox"
+                                  :class="{
+                                    checked:
+                                      checkedSkillIds.has(skill.id) ||
+                                      (checkedEvalIds.has(ev.id) &&
+                                        !excludedSkillIds.has(skill.id)),
+                                  }"
+                                  @click.stop="handleSkillCheck(ev, skill)"
+                                >
+                                  <Check
+                                    v-if="
+                                      checkedSkillIds.has(skill.id) ||
+                                      (checkedEvalIds.has(ev.id) &&
+                                        !excludedSkillIds.has(skill.id))
+                                    "
+                                    :size="18"
+                                  />
+                                </span>
+                              </template>
+                            </button>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                   <div v-if="evaluations.length === 0" class="picker-empty">
                     Aucune évaluation
                   </div>
-                  <div class="picker-item-row">
+                  <div v-if="evalEditMode" class="picker-item-row">
                     <button
                       class="picker-item picker-item--inline"
                       @click="
@@ -1959,7 +3114,7 @@ defineExpose({
                       v-if="reportData.students.length === 0"
                       class="report-empty"
                     >
-                      Aucun élève dans cette classe.
+                      Aucun élève dans cette sélection.
                     </div>
                     <template v-else>
                       <table class="report-table">
@@ -1976,75 +3131,100 @@ defineExpose({
                           </tr>
                         </thead>
                         <tbody>
-                          <tr
-                            v-for="student in reportData.students"
-                            :key="student.id"
+                          <template
+                            v-for="group in reportStudentsByClass"
+                            :key="group.classId"
                           >
-                            <td
-                              class="report-td-student report-td-student--clickable"
-                              @click="reportSelectedStudentId = student.id"
+                            <!-- Class header row -->
+                            <tr class="report-class-header">
+                              <td colspan="100%">
+                                {{ group.className }}
+                              </td>
+                            </tr>
+                            <tr
+                              v-for="student in group.students"
+                              :key="student.id"
                             >
-                              {{ student.firstname + " " + student.lastname }}
-                            </td>
-                            <td
-                              v-for="skill in reportData.skills"
-                              :key="skill.id"
-                              class="report-td-count"
-                            >
-                              <template
-                                v-if="
-                                  studentSkillCount(student.id, skill.id) > 0
-                                "
+                              <td
+                                class="report-td-student report-td-student--clickable"
+                                @click="reportSelectedStudentId = student.id"
                               >
-                                <div class="skill-stats">
-                                  <span
-                                    v-if="
-                                      studentSkillLast(student.id, skill.id) !=
-                                      null
-                                    "
-                                    class="stat-latest"
-                                  >
-                                    <span class="stat-latest-value">{{
-                                      studentSkillLast(student.id, skill.id)
-                                    }}</span>
-                                  </span>
-                                  <span class="stat-group">
-                                    <span class="stat-item"
-                                      ><Eye :size="11" />
-                                      <span class="stat-val">{{
-                                        studentSkillCount(student.id, skill.id)
-                                      }}</span></span
+                                {{ student.firstname + " " + student.lastname }}
+                              </td>
+                              <td
+                                v-for="skill in reportData.skills"
+                                :key="skill.id"
+                                class="report-td-count"
+                              >
+                                <template
+                                  v-if="
+                                    studentSkillCount(student.id, skill.id) > 0
+                                  "
+                                >
+                                  <div class="skill-stats">
+                                    <span
+                                      v-if="
+                                        studentSkillLast(
+                                          student.id,
+                                          skill.id,
+                                        ) != null
+                                      "
+                                      class="stat-latest"
                                     >
-                                    <span class="stat-item stat-tri"
-                                      ><span class="tri-down">▼</span>
-                                      <span class="stat-val">{{
-                                        fmtNum(
-                                          studentSkillMin(student.id, skill.id),
-                                        )
-                                      }}</span></span
-                                    >
-                                    <span class="stat-item stat-tri"
-                                      ><span class="tri-up">▲</span>
-                                      <span class="stat-val">{{
-                                        fmtNum(
-                                          studentSkillMax(student.id, skill.id),
-                                        )
-                                      }}</span></span
-                                    >
-                                    <span class="stat-item"
-                                      ><span class="stat-tilde">~</span>
-                                      <span class="stat-val">{{
-                                        fmtNum(
-                                          studentSkillAvg(student.id, skill.id),
-                                        )
-                                      }}</span></span
-                                    >
-                                  </span>
-                                </div>
-                              </template>
-                              <span v-else class="stats-na">N/A</span>
-                            </td>
-                          </tr>
+                                      <span class="stat-latest-value">{{
+                                        studentSkillLast(student.id, skill.id)
+                                      }}</span>
+                                    </span>
+                                    <span class="stat-group">
+                                      <span class="stat-item"
+                                        ><Eye :size="11" />
+                                        <span class="stat-val">{{
+                                          studentSkillCount(
+                                            student.id,
+                                            skill.id,
+                                          )
+                                        }}</span></span
+                                      >
+                                      <span class="stat-item stat-tri"
+                                        ><span class="tri-down">▼</span>
+                                        <span class="stat-val">{{
+                                          fmtNum(
+                                            studentSkillMin(
+                                              student.id,
+                                              skill.id,
+                                            ),
+                                          )
+                                        }}</span></span
+                                      >
+                                      <span class="stat-item stat-tri"
+                                        ><span class="tri-up">▲</span>
+                                        <span class="stat-val">{{
+                                          fmtNum(
+                                            studentSkillMax(
+                                              student.id,
+                                              skill.id,
+                                            ),
+                                          )
+                                        }}</span></span
+                                      >
+                                      <span class="stat-item"
+                                        ><span class="stat-tilde">~</span>
+                                        <span class="stat-val">{{
+                                          fmtNum(
+                                            studentSkillAvg(
+                                              student.id,
+                                              skill.id,
+                                            ),
+                                          )
+                                        }}</span></span
+                                      >
+                                    </span>
+                                  </div>
+                                </template>
+                                <span v-else class="stats-na">N/A</span>
+                              </td>
+                            </tr>
+                          </template>
                         </tbody>
                       </table>
                     </template>
@@ -2055,50 +3235,134 @@ defineExpose({
           </div>
         </Transition>
       </div>
-
-      <!-- BRAND / PICKER SCREEN (top layer) -->
-      <div class="wood-bg picker-screen">
-        <div class="brand">
-          <img class="hero-img" src="/tu-hero.png" alt="" />
-          <div class="brand-name">Tuvalu</div>
-        </div>
-      </div>
     </div>
 
     <!-- ── PERMANENT STUDENTS ROW ───────────────────────── -->
     <div class="students-row">
-      <template v-if="view === 'active'">
-        <div
-          v-for="student in sortedStudents"
-          :key="student.id"
-          class="student-wrapper"
-          :class="{ 'is-ghost': drag?.student?.id === student.id }"
-          :data-student-id="student.id"
-          :style="{ opacity: studentOpacity(student.id) }"
-          @pointerdown="onDragStart($event, student)"
+      <!-- Left zone: filter toggle -->
+      <div class="students-row-left">
+        <button
+          class="fab students-row-btn"
+          :class="{ 'fab--filled': filterPanelOpen }"
+          title="Filtrer"
+          @click="filterPanelOpen = !filterPanelOpen"
         >
-          <div class="student-bubble">
-            {{ student.firstname }}
+          <Funnel :size="16" />
+        </button>
+
+        <!-- Filter panel -->
+        <div v-if="filterPanelOpen" class="filter-panel" @click.stop>
+          <div class="filter-panel-section">
+            <span class="filter-panel-label">Trier par</span>
+            <div class="filter-panel-options">
+              <label
+                class="filter-option"
+                :class="{ active: sortBy === 'firstname' }"
+              >
+                <input
+                  type="radio"
+                  name="sortBy"
+                  value="firstname"
+                  v-model="sortBy"
+                />
+                Prénom
+              </label>
+              <label
+                class="filter-option"
+                :class="{ active: sortBy === 'lastname' }"
+              >
+                <input
+                  type="radio"
+                  name="sortBy"
+                  value="lastname"
+                  v-model="sortBy"
+                />
+                Nom
+              </label>
+            </div>
+          </div>
+          <div class="filter-panel-section">
+            <span class="filter-panel-label">Sexe</span>
+            <div class="filter-panel-options">
+              <label
+                class="filter-option"
+                :class="{ active: genderFilter === 'all' }"
+              >
+                <input
+                  type="radio"
+                  name="gender"
+                  value="all"
+                  v-model="genderFilter"
+                />
+                Tous
+              </label>
+              <label
+                class="filter-option filter-option--disabled"
+                title="À venir"
+              >
+                <input type="radio" disabled />
+                M
+              </label>
+              <label
+                class="filter-option filter-option--disabled"
+                title="À venir"
+              >
+                <input type="radio" disabled />
+                F
+              </label>
+            </div>
           </div>
         </div>
-      </template>
-      <template v-else>
-        <div
-          v-for="student in classStudents"
-          :key="student.id"
-          class="student-wrapper"
-        >
-          <div class="student-bubble-preview">
-            {{ student.firstname }}
+      </div>
+
+      <!-- Middle zone: student bubbles -->
+      <div class="students-row-center">
+        <template v-if="students.length > 0">
+          <div
+            v-for="student in sortedStudents"
+            :key="student.id"
+            class="student-wrapper"
+            :class="{ 'is-ghost': drag?.student?.id === student.id }"
+            :data-student-id="student.id"
+            :style="{ opacity: studentOpacity(student.id) }"
+            @pointerdown="onDragStart($event, student)"
+          >
+            <div class="student-bubble">
+              {{ student.firstname }}
+            </div>
           </div>
+        </template>
+        <template v-else-if="selectedStudentList.length > 0">
+          <div
+            v-for="student in selectedStudentList"
+            :key="student.id"
+            class="student-wrapper"
+          >
+            <div class="student-bubble-preview">
+              {{ student.firstname }}
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Right zone: absent drop -->
+      <div class="students-row-right">
+        <div
+          class="absent-zone"
+          :class="{ 'absent-zone--hover': hoveredAbsent }"
+          data-absent-zone
+          title="Glisser un élève ici pour le retirer"
+        >
+          <HatGlasses :size="22" />
         </div>
-      </template>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 @import url("https://fonts.googleapis.com/css2?family=Coiny&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Varela+Round&display=swap");
 
 /* ── App root ─────────────────────────────────────── */
 .app-root {
@@ -2115,23 +3379,45 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 20px 0 20px;
+  /* padding: 6px 20px 0 20px; */
 
   height: 80px;
 }
 .top-bar {
+  margin: 6px 20px 0 20px;
+  position: relative;
   height: 60px;
 }
 .students-row {
   padding: 15px;
-  gap: 6px;
-  justify-content: center;
-  flex-wrap: wrap;
+  gap: 10px;
   min-height: 100px;
   height: auto;
-  overflow-y: auto;
   align-items: flex-start;
 }
+
+.students-row-left,
+.students-row-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.students-row-center {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.students-row-left {
+  position: relative;
+}
+
 .top-bar-center {
   display: flex;
   align-items: center;
@@ -2193,6 +3479,105 @@ defineExpose({
   font-weight: 700;
 }
 
+/* ── Students row action button ───────────────────── */
+.students-row-btn {
+  flex-shrink: 0;
+  padding: 0.5rem;
+}
+
+/* ── Filter panel ─────────────────────────────────── */
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+  background: #457b9d;
+  border-radius: 20px;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 50;
+  min-width: 320px;
+}
+
+.filter-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-panel-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-light);
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filter-panel-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-light);
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.15s;
+}
+
+.filter-option input {
+  display: none;
+}
+
+.filter-option.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.filter-option--disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed;
+}
+
+/* ── Absent drop zone ─────────────────────────────── */
+.absent-zone {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: 2px dashed var(--text-light);
+  /* color: rgba(255, 100, 80, 0.5); */
+  /* background: rgba(255, 80, 60, 0.08); */
+  cursor: default;
+  opacity: 0.3;
+  transition: all 0.2s;
+  pointer-events: auto;
+}
+
+.absent-zone--hover {
+  /* border-color: rgba(255, 80, 60, 0.8);
+  color: rgba(255, 80, 60, 0.95);
+  background: rgba(255, 80, 60, 0.2); */
+  transform: scale(1.2);
+  opacity: 1;
+  transform-origin: top right;
+}
+
 /* ── Turf background ──────────────────────────────── */
 .wood-bg {
   background: #3a5e69;
@@ -2213,7 +3598,12 @@ defineExpose({
 
 .eval-bg .picker-item.selected {
   /* background: rgba(26, 14, 4, 0.12); */
-  border-color: #ffffff;
+  /* background: rgba(26, 14, 4, 0.15); */
+  /* border-color: transparent; */
+}
+.eval-bg .row-checkbox {
+  border-color: var(--text-light);
+  opacity: 0.6;
 }
 
 /* ── Main content (stacked layers) ──────────────── */
@@ -2329,6 +3719,14 @@ defineExpose({
   flex: 1;
 }
 
+.top-bar-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-right: 1rem;
+}
+
 /* ── Undo button ────────────────────────────────── */
 .undo-btn {
   border: 2px var(--text-light) solid;
@@ -2354,48 +3752,6 @@ defineExpose({
   opacity: 0.85;
 }
 
-/* ── Session button ───────────────────────────────── */
-.session-btn {
-  background: var(--track-red);
-  border-color: var(--track-red);
-  color: #fff;
-  transition: opacity 0.2s;
-}
-
-.session-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.session-btn:not(:disabled):hover {
-  opacity: 0.85;
-}
-
-.session--active {
-  background: var(--track-red) !important;
-  border-color: var(--track-red) !important;
-  color: #fff !important;
-}
-
-.session--active:not(:disabled):hover {
-  opacity: 0.85 !important;
-}
-
-.session-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--stadium-yellow);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* ── Student bubble preview (picker screen) ───────── */
 .student-bubble-preview {
   border-radius: 999px;
@@ -2414,6 +3770,7 @@ defineExpose({
 .live-screen {
   /* z-index: 3 !important; */
   background: var(--track-red);
+  overflow: hidden;
   /* flex: 1; */
   /* display: flex;
   flex-direction: column;
@@ -2450,7 +3807,23 @@ defineExpose({
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 1rem;
+  padding: 0.5rem 0.1rem;
+}
+
+.zones-container--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.row-edit-btn {
+  height: 28px;
+}
+.zones-container--grid .drop-zone {
+  margin: 0;
+  flex: none;
+  min-height: 0;
+  height: auto;
 }
 
 .drop-zone {
@@ -2460,8 +3833,9 @@ defineExpose({
   position: relative;
   margin: 4px 12px;
   /* border: 2px dashed rgba(255, 200, 80, 0.2); */
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(20, 10, 2, 0.35);
+  overflow: hidden;
   transition:
     background 0.18s,
     border-color 0.18s,
@@ -2484,15 +3858,27 @@ defineExpose({
 }
 
 .zone-name {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-light);
-  /* opacity: 0.6; */
-  /* letter-spacing: 0.06em; */
-  transition: color 0.18s;
+  display: flex;
+  /* flex-direction: column; */
+  /* gap: 12px; */
+  padding-left: 8px;
+  align-items: center;
+  line-height: 1.3;
   pointer-events: none;
 }
 
+.zone-skill-name,
+.zone-eval-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-light);
+  transition: color 0.18s;
+}
+.zone-eval-name::after {
+  content: "\\";
+  margin: 0 12px;
+  /* opacity: 0.5; */
+}
 .zone-prior-count {
   position: absolute;
   right: 16px;
@@ -2520,7 +3906,7 @@ defineExpose({
 }
 .zone-hover .zone-name {
   color: var(--text-light);
-  opacity: 0.85;
+  /* opacity: 0.85; */
 }
 
 /* Zone: hover (has prior evals) */
@@ -2531,7 +3917,7 @@ defineExpose({
 }
 .zone-hover-prior .zone-name {
   color: var(--text-light);
-  opacity: 0.7;
+  /* opacity: 0.7; */
 }
 
 /* Zone: confirmation flash */
@@ -2552,12 +3938,11 @@ defineExpose({
 .zones-empty {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  width: 100%;
+  justify-content: flex-end;
   color: var(--text-light);
-  opacity: 0.4;
-  font-size: 0.9rem;
-  font-style: italic;
+  /* opacity: 0.4; */
 }
 
 /* ── Students row ─────────────────────────────────── */
@@ -2630,9 +4015,11 @@ defineExpose({
   display: flex;
   flex: 1;
   width: 100%;
-  gap: 12px;
-  padding: 12px;
+  gap: 2px;
+  /* padding: 12px; */
   padding-top: 0;
+  /* border-radius: 8px; */
+  overflow: hidden;
 }
 
 .zone-segment {
@@ -2642,9 +4029,9 @@ defineExpose({
   justify-content: center;
   position: relative;
   /* border: 1px dashed rgba(255, 200, 80, 0.3); */
-  border-radius: 8px;
+  /* border-radius: 8px; */
   background: rgba(30, 16, 3, 0.4);
-  color: orange;
+  color: rgba(224, 72, 1, 0.6);
   font-size: clamp(2.5rem, 8vw, 5rem);
   font-family: "Coiny", sans-serif;
   opacity: 0.6;
@@ -2661,7 +4048,7 @@ defineExpose({
   background: rgba(232, 168, 32, 0.35);
   color: var(--text-light);
   transform: scale(1.04);
-  border-style: solid;
+  /* border-style: solid; */
   opacity: 0.85;
 }
 
@@ -2720,10 +4107,11 @@ defineExpose({
   overflow-x: hidden;
   max-height: calc(92vh - 140px);
   scrollbar-width: thin;
-  scrollbar-color: rgba(232, 168, 32, 0.3) transparent;
+  /* scrollbar-color: rgba(232, 168, 32, 0.3) transparent; */
   /* display: flex; */
   flex-wrap: wrap;
   align-items: center;
+  padding-bottom: 100px;
 }
 
 .class-modal-body::-webkit-scrollbar {
@@ -2983,6 +4371,23 @@ defineExpose({
 .skill-row:hover {
   background: #a8dadc80;
 }
+
+.skill-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.skill-row-actions > * {
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+
+.skill-row-actions > *:hover {
+  opacity: 1;
+}
 .skill-input {
   flex: 1;
   padding: 0.45rem 0.75rem;
@@ -3102,6 +4507,12 @@ defineExpose({
   color: var(--court-blue);
   display: flex;
   flex-direction: column;
+  max-width: 100%;
+}
+
+.report-modal > .report-body,
+.report-modal > .picker-panel-header {
+  max-width: 100%;
 }
 .report-modal .picker-panel-header {
   color: var(--court-blue);
@@ -3232,6 +4643,23 @@ defineExpose({
 .report-table .report-th-student {
   min-width: 120px;
   text-align: left;
+}
+
+/* ── Class header row in report ─────────────────── */
+.report-class-header td {
+  background: var(--court-blue);
+  color: var(--text-light);
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  letter-spacing: 0.04em;
+}
+
+.report-table tbody tr.report-class-header {
+  border-top: 2px solid rgba(38, 70, 83, 0.2);
 }
 
 .report-th-skill-col {
@@ -3548,8 +4976,8 @@ defineExpose({
 }
 .picker-panel-header {
   padding-top: 1.2rem;
-  padding-left: 1.5rem;
-  padding-right: 0.3rem;
+  padding-left: 2.4rem;
+  padding-right: 1.2rem;
   /* padding: 1.2rem 1rem 0.6rem; */
   font-size: 1.7rem;
   font-weight: 700;
@@ -3591,7 +5019,7 @@ defineExpose({
 }
 
 .class-modal--editing {
-  border: 2px solid var(--stadium-yellow);
+  /* border: 2px solid var(--stadium-yellow); */
 }
 .picker-item {
   width: 100%;
@@ -3615,16 +5043,6 @@ defineExpose({
     background 0.15s,
     color 0.15s,
     transform 0.12s;
-}
-
-.picker-item.selected {
-  /* background: var(--stadium-yellow); */
-  /* border-color: var(--stadium-yellow); */
-  /* border: none; */
-  /* color: var(--court-blue); */
-  /* border: inherit; */
-  border: 2px solid var(--text-light);
-  font-weight: 900;
 }
 
 .picker-item-row {
@@ -3656,6 +5074,521 @@ defineExpose({
   opacity: 0.7;
 }
 
+/* ── Modifier toggle button (top bar) ─────────────── */
+.modifier-toggle {
+  position: absolute;
+  right: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--text-light);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  color: var(--text-light);
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  gap: 6px;
+  transition:
+    background 0.2s,
+    opacity 0.2s;
+}
+.modifier-toggle:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.modifier-toggle:disabled:hover {
+  background: none;
+}
+.modifier-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.modifier-toggle.active {
+  background: var(--text-light);
+  border-color: var(--text-light);
+  color: var(--court-blue);
+}
+
+/* ── Header title with edit pen ──────────────────── */
+.header-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mode-edition-label {
+  font-family: inherit;
+  font-weight: 700;
+  /* font-size: 1rem; */
+  /* font-weight: 600; */
+  /* color: var(--stadium-yellow); */
+  white-space: nowrap;
+}
+
+/* ── Folder row (expand/collapse) ────────────────── */
+.folder-row {
+  cursor: pointer;
+}
+.folder-row.expanded {
+  /* background: #a8dadc80; */
+}
+
+.picker-item.folder-row.expanded {
+  flex-direction: column;
+  align-items: stretch;
+  /* padding: 0.6rem 0.8rem; */
+  gap: 0.5rem;
+  border-radius: 24px;
+}
+
+.picker-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding-right: 0.37rem;
+}
+
+.folder-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+/* ── Nested items (expanded children) ────────────── */
+.nested-items {
+}
+
+.picker-item--nested {
+  font-size: 1rem;
+  padding: 0.4rem 0.8rem;
+  padding-left: 1.4rem;
+  background: rgba(168, 218, 220, 0.2);
+  gap: 0.5rem;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+}
+
+.nested-row {
+  gap: 0.2rem;
+}
+
+.nested-empty {
+  padding: 0.6rem 1rem 0.6rem 1.5rem;
+  color: var(--text-light);
+  opacity: 0.4;
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.nested-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.nested-row-actions > * {
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.nested-row-actions > *:hover {
+  opacity: 1;
+}
+
+/* ── Detail placeholder (student/skill sub-views) ── */
+.detail-placeholder {
+  padding: 2rem;
+  text-align: center;
+}
+
+.detail-placeholder-label {
+  font-size: 1.2rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* ── Detail section / label / input (shared with class detail style) ── */
+.student-detail-fields .detail-section,
+.skill-detail-fields .detail-section {
+  padding: 0.25rem 0;
+}
+
+.student-detail-fields .detail-label,
+.skill-detail-fields .detail-label {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.student-detail-fields .detail-input,
+.skill-detail-fields .detail-input {
+  flex: 1;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(33, 37, 41, 0.6);
+  color: var(--text-light);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s;
+  font-family: inherit;
+  border: none;
+  box-sizing: border-box;
+}
+.student-detail-fields .detail-input:focus,
+.skill-detail-fields .detail-input:focus {
+  border-color: var(--stadium-yellow);
+  background: rgba(33, 37, 41, 0.7);
+}
+.student-detail-fields .detail-input::placeholder,
+.skill-detail-fields .detail-input::placeholder {
+  color: var(--text-light);
+  opacity: 0.4;
+}
+
+/* ── Student detail form ──────────────────────────── */
+.student-detail-form {
+  padding: 1.5rem;
+}
+
+.student-detail-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.student-detail-photo {
+  flex-shrink: 0;
+}
+
+.student-photo-circle {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: #1a3a5c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.student-photo-initials {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+}
+
+.student-detail-fields {
+  flex: 1;
+  min-width: 0;
+}
+.gender-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gender-btn {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.5;
+}
+.gender-btn:hover {
+  opacity: 0.8;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.gender-btn.active {
+  opacity: 1;
+  border-color: var(--stadium-yellow);
+  background: rgba(241, 196, 15, 0.15);
+  color: var(--stadium-yellow);
+}
+
+/* ── Skill detail form ───────────────────────────── */
+.skill-detail-form {
+  padding: 1.5rem;
+}
+
+.skill-detail-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.skill-detail-icon {
+  flex-shrink: 0;
+}
+
+.skill-icon-circle {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: #2d4a3e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+}
+.skill-icon-circle:hover {
+  background: #3a5e4e;
+  transform: scale(1.05);
+}
+.skill-icon-circle.picker-open {
+  background: var(--stadium-yellow, #f1c40f);
+  border-radius: 28px 28px 0 0;
+}
+
+.skill-icon-img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+}
+
+.skill-icon-letter {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+}
+
+/* ── Icon picker ─────────────────────────────────── */
+.icon-picker {
+  margin-top: 0;
+  background: #1e2a30;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  padding: 0.5rem;
+  max-height: 240px;
+  overflow-y: auto;
+  width: 280px;
+}
+
+.icon-picker-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #1e2a30;
+  padding-bottom: 0.4rem;
+}
+
+.icon-picker-input {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(33, 37, 41, 0.6);
+  color: var(--text-light);
+  font-size: 0.8rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+.icon-picker-input:focus {
+  border-color: var(--stadium-yellow);
+}
+
+.icon-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.icon-picker-option {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  padding: 4px;
+  transition: all 0.15s;
+}
+.icon-picker-option:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.icon-picker-option.selected {
+  background: rgba(241, 196, 15, 0.2);
+  border-color: var(--stadium-yellow);
+}
+
+.icon-picker-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* ── Skill row icon (editing view) ──────────────── */
+.skill-row-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+/* ── Picker item icon (eval modal tree) ──────────── */
+.picker-item-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* ── Zone skill icon (drop zones) ───────────────── */
+.zone-skill-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  opacity: 0.7;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 0.25rem;
+}
+
+.skill-detail-fields {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-scale-config {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.3rem;
+}
+
+.scale-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+}
+
+.scale-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scale-input {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(33, 37, 41, 0.5);
+  color: var(--text-light);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+.scale-input:focus {
+  border-color: var(--stadium-yellow);
+  background: rgba(33, 37, 41, 0.7);
+}
+
+.scale-preview {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.scale-preview-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scale-preview-values {
+  font-size: 0.85rem;
+  color: var(--stadium-yellow);
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.skill-scale-badge {
+  font-size: 0.7rem;
+  color: var(--text-light);
+  opacity: 0.5;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* ── Row checkbox ────────────────────────────────── */
+.row-checkbox {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  /* border: 2px solid var(--text-light); */
+  background: var(--court-blue);
+  opacity: 0.5;
+  /* background: transparent; */
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.row-checkbox.checked {
+  border: 2px solid var(--text-light);
+  border-color: var(--text-light);
+  background: none;
+  opacity: 1;
+}
+/* .row-checkbox.checked :deep(svg) {
+  color: #1a0e04;
+  display: block;
+} */
+
 .picker-empty {
   padding: 3rem 1.5rem;
   text-align: center;
@@ -3676,6 +5609,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-left: -0.4rem;
 }
 
 .header-left {
@@ -3683,4 +5617,9 @@ defineExpose({
   align-items: center;
   gap: 0.5rem;
 }
+.bubble {
+  border: 2px solid var(--text-light);
+  padding: 20px;
+}
 </style>
+;

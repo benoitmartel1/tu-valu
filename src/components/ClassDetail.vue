@@ -1,21 +1,19 @@
 <script setup>
 import { ref, onMounted, computed } from "vue";
 import { supabase } from "../supabase";
-import {
-  Plus,
-  Trash2,
-  Edit2,
-  X,
-  Check,
-  ChevronLeft,
-  Upload,
-} from "@lucide/vue";
+import { Plus, PenIcon, X, Check, ChevronLeft, Upload } from "@lucide/vue";
 
 const props = defineProps({
   classId: { type: String, default: null },
 });
 
-const emit = defineEmits(["close", "saved", "deleted"]);
+const emit = defineEmits([
+  "close",
+  "saved",
+  "deleted",
+  "edit-student",
+  "remove-student",
+]);
 
 // ── State ─────────────────────────────────────────────
 const className = ref("");
@@ -409,16 +407,16 @@ const parsedEntries = computed(() => {
               </button>
             </template>
             <template v-else>
-              <span class="student-name" @click="startEditStudent(student)">
+              <span
+                class="student-name"
+                @click="emit('edit-student', student.id)"
+              >
                 {{ student.firstname }} {{ student.lastname }}
               </span>
-              <button
-                class="btn-icon btn-icon--delete"
-                title="Supprimer"
-                @click="deleteStudent(student.id)"
-              >
-                <Trash2 :size="20" />
-              </button>
+              <span class="student-row-actions">
+                <PenIcon :size="20" @click="emit('edit-student', student.id)" />
+                <X :size="20" @click="emit('remove-student', student.id)" />
+              </span>
             </template>
           </div>
 
@@ -771,6 +769,24 @@ const parsedEntries = computed(() => {
   flex: 1;
   font-size: 0.95rem;
   color: var(--text-light);
+  cursor: pointer;
+}
+
+.student-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.student-row-actions > * {
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+
+.student-row-actions > *:hover {
+  opacity: 1;
 }
 
 .students-empty {

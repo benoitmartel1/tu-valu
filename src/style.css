@@ -17,15 +17,20 @@
   --text-light: #f1faee;
 }
 
+@import url("https://fonts.googleapis.com/css2?family=Varela+Round&display=swap");
+
 body {
-  font-family: "Quicksand", system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    "Varela Round", "Quicksand", system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
   color: var(--text-light);
   background: var(--court-blue);
   -webkit-font-smoothing: antialiased;
 }
-
+button {
+  font-family: inherit !important;
+}
 #app {
   min-height: 100svh;
 }
