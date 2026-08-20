@@ -17,7 +17,7 @@ const emit = defineEmits([
 
 // ── State ─────────────────────────────────────────────
 const className = ref("");
-const students = ref([]); // { id, firstname, lastname, editing, editFirstname, editLastname }
+const students = ref([]); // { id, firstname, lastname, editing, editFirstname, editLastname, class_name }
 const newFirstname = ref("");
 const newLastname = ref("");
 const addingStudent = ref(false);
@@ -49,19 +49,23 @@ async function loadClass(id) {
       supabase.from("tu_classes").select("id, name").eq("id", id).single(),
       supabase
         .from("tu_students")
-        .select("id, firstname, lastname")
-        .eq("class_id", id)
-        .order("firstname"),
+        .select("id, firstname, lastname, class_id, tu_classes(name)")
+        .eq("class_id", id),
     ]);
     if (cls) {
       className.value = cls.name;
       originalClassName.value = cls.name;
     }
-    students.value = (stu || []).map((s) => ({
+    // Sort students with French locale to handle accented characters correctly
+    const sortedStudents = (stu || []).sort((a, b) =>
+      a.firstname.localeCompare(b.firstname, "fr-FR"),
+    );
+    students.value = sortedStudents.map((s) => ({
       ...s,
       editing: false,
       editFirstname: s.firstname,
       editLastname: s.lastname,
+      class_name: s.tu_classes?.name || "",
     }));
   } catch (err) {
     console.error("Failed to load class:", err);
@@ -391,6 +395,9 @@ const parsedEntries = computed(() => {
                 @keyup.enter="saveStudent(student)"
                 @keyup.escape="cancelEditStudent(student)"
               />
+              <span v-if="student.class_name" class="class-pill">
+                {{ student.class_name }}
+              </span>
               <button
                 class="btn-icon btn-icon--confirm"
                 title="Confirmer"
@@ -638,6 +645,19 @@ const parsedEntries = computed(() => {
 .student-input {
   font-size: 0.9rem;
   padding: 0.45rem 0.65rem;
+}
+
+.class-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(168, 218, 220, 0.25);
+  color: var(--text-light);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Buttons ────────────────────────────────────────── */

@@ -520,10 +520,4 @@ async function deleteItem(id) {
   gap: 0.5rem;
   transition: all 0.2s;
 }
-.add-btn:hover {
-  border-color: rgba(255, 200, 80, 0.7);
-  color: var(--text-light);
-  opacity: 0.9;
-  background: rgba(255, 200, 80, 0.08);
-}
 </style>
