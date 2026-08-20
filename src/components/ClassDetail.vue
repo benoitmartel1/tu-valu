@@ -79,11 +79,26 @@ async function saveClass() {
   if (!className.value.trim()) return;
   loading.value = true;
   try {
-    if (props.classId) {
+    if (props.classId && props.classId !== "new") {
+      // Update existing class
       await supabase
         .from("tu_classes")
         .update({ name: className.value.trim() })
         .eq("id", props.classId);
+    } else {
+      // Create new class
+      const { data, error } = await supabase
+        .from("tu_classes")
+        .insert({ name: className.value.trim() })
+        .select();
+
+      if (error) {
+        console.error("Failed to create class:", error);
+        alert("Erreur lors de la création de la classe");
+        return;
+      }
+
+      console.log("New class created:", data[0]);
     }
     emit("saved");
   } catch (err) {
@@ -628,7 +643,7 @@ const parsedEntries = computed(() => {
   /* border: 1.5px solid rgba(255, 215, 0, 0.2); */
   background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
-  font-size: 0.95rem;
+  font-size: 1.5rem;
   outline: none;
   transition: all 0.2s;
   font-family: inherit;
@@ -643,7 +658,7 @@ const parsedEntries = computed(() => {
 }
 
 .student-input {
-  font-size: 0.9rem;
+  font-size: 1.5rem;
   padding: 0.45rem 0.65rem;
 }
 

@@ -187,6 +187,7 @@ async function loadAllData() {
     .select("*")
     .order("name");
   classes.value = classData || [];
+  console.log("Loaded classes:", classes.value.length);
 
   // Load evaluations
   const { data: evalData } = await supabase
@@ -295,23 +296,16 @@ async function deleteClass(id) {
   }
 }
 
-async function refreshClasses() {
-  const { data } = await supabase
-    .from("tu_classes")
-    .select("id, name")
-    .order("name");
-  classes.value = data || [];
-}
-
 function onClassDetailSaved() {
+  console.log("Class saved, reloading all data...");
   classDetailId.value = null;
-  refreshClasses();
+  loadAllData();
 }
 
 function onClassDetailDeleted() {
   const deletedId = classDetailId.value;
   classDetailId.value = null;
-  refreshClasses();
+  loadAllData();
   // If the deleted class was selected, reset selection
   if (deletedId !== "new" && selectedClassId.value === deletedId) {
     selectedClassId.value = null;
@@ -510,9 +504,27 @@ async function saveSkill(skill, index) {
 
 async function removeSkill(skill, index) {
   if (!confirm("Supprimer cette habileté?")) return;
+
   if (!skill._temp && skill.id) {
-    await supabase.from("tu_skills").delete().eq("id", skill.id);
+    try {
+      // First, delete all session events for this skill
+      await supabase
+        .from("tu_session_events")
+        .delete()
+        .eq("skill_id", skill.id);
+
+      // Then delete the skill
+      await supabase.from("tu_skills").delete().eq("id", skill.id);
+    } catch (err) {
+      console.error("Failed to delete skill:", err);
+      alert("Erreur lors de la suppression de l'habileté");
+      return;
+    }
+
+    // Also remove from main skills array
+    skills.value = skills.value.filter((s) => s.id !== skill.id);
   }
+
   editingSkills.value.splice(index, 1);
 }
 
@@ -550,10 +562,36 @@ async function addNewEval() {
 
 async function deleteEval(id) {
   if (!confirm("Êtes-vous sûr?")) return;
+
+  // Delete all skills for this evaluation first
+  await supabase.from("tu_skills").delete().eq("evaluation_id", id);
+
+  // Then delete the evaluation
   await supabase.from("tu_evaluations").delete().eq("id", id);
+
+  // Update local arrays
   evaluations.value = evaluations.value.filter((e) => e.id !== id);
+  skills.value = skills.value.filter((s) => s.evaluation_id !== id);
   checkedEvalIds.value.delete(id);
   checkedEvalIds.value = new Set(checkedEvalIds.value);
+}
+
+async function handleDeleteEval() {
+  if (!editingEvalId.value) return;
+
+  // Delete the evaluation (includes confirm dialog)
+  await deleteEval(editingEvalId.value);
+
+  // Only proceed if the eval was actually deleted (check if it still exists)
+  const stillExists = evaluations.value.find(
+    (e) => e.id === editingEvalId.value,
+  );
+  if (!stillExists) {
+    // Eval was deleted, cancel edit but keep modal open
+    cancelEvalEdit();
+    // Don't close the modal - let user select another eval or create new one
+  }
+  // If eval still exists, user cancelled - do nothing, stay in edit mode
 }
 
 async function startSession() {
@@ -1451,20 +1489,61 @@ function skillStepEdit(e) {
 async function deleteSkillFromDetail() {
   if (!skillDetailId.value) return;
   if (!confirm("Supprimer cette habileté ?")) return;
-  const { error } = await supabase
-    .from("tu_skills")
-    .delete()
-    .eq("id", skillDetailId.value);
-  if (error) {
-    console.error("Failed to delete skill:", error);
-    return;
-  }
-  // Remove from skills array (single source of truth)
-  skills.value = skills.value.filter((s) => s.id !== skillDetailId.value);
 
-  // Reload live view if active
-  if (hasStudentSelection.value && hasEvalSelection.value) startSession();
-  skillDetailId.value = null;
+  const skillId = skillDetailId.value;
+
+  try {
+    // First, delete all session events for this skill
+    console.log("Deleting session events for skill:", skillId);
+    const { error: eventsError } = await supabase
+      .from("tu_session_events")
+      .delete()
+      .eq("skill_id", skillId);
+
+    if (eventsError) {
+      console.error("Failed to delete session events:", eventsError);
+      alert("Erreur lors de la suppression des événements de session");
+      return;
+    }
+
+    console.log("Session events deleted successfully");
+
+    // Then delete the skill
+    console.log("Deleting skill:", skillId);
+    const { error } = await supabase
+      .from("tu_skills")
+      .delete()
+      .eq("id", skillId);
+    if (error) {
+      console.error("Failed to delete skill:", error);
+      console.error("Error details:", JSON.stringify(error));
+
+      // Check if it's a foreign key constraint error
+      if (error.code === "23503") {
+        alert(
+          "Cette habileté ne peut pas être supprimée car elle est encore utilisée dans des évaluations. Supprimez d'abord toutes les évaluations associées.",
+        );
+      } else {
+        alert(`Erreur lors de la suppression de l'habileté: ${error.message}`);
+      }
+      return;
+    }
+
+    console.log("Skill deleted successfully");
+
+    // Remove from skills array (single source of truth)
+    skills.value = skills.value.filter((s) => s.id !== skillId);
+
+    // Also remove from editingSkills if present
+    editingSkills.value = editingSkills.value.filter((s) => s.id !== skillId);
+
+    // Reload live view if active
+    if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+    skillDetailId.value = null;
+  } catch (err) {
+    console.error("Unexpected error while deleting skill:", err);
+    alert("Une erreur inattendue est survenue");
+  }
 }
 
 const skillDetailName = computed(() => {
@@ -2398,11 +2477,7 @@ defineExpose({
                     editingEvalId && !isAddingNewEval && skillDetailId === null
                   "
                   class="header-trash-btn"
-                  @click="
-                    deleteEval(editingEvalId);
-                    cancelEvalEdit();
-                    evalModalOpen = false;
-                  "
+                  @click="handleDeleteEval"
                   title="Supprimer l'évaluation"
                 >
                   <Trash2 :size="24" />
@@ -3265,6 +3340,25 @@ defineExpose({
 @import url("https://fonts.googleapis.com/css2?family=Coiny&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=Varela+Round&display=swap");
 
+/* ── Global input styles ─────────────────────────── */
+input,
+textarea {
+  font-size: 1.5rem;
+}
+
+/* Ensure all detail and edit inputs have consistent size */
+.detail-input,
+.edit-input,
+.student-detail-fields .detail-input,
+.skill-detail-fields .detail-input,
+.class-edit-row .edit-input,
+.skill-input,
+.range-input,
+.icon-picker-input,
+.scale-input {
+  font-size: 1.5rem;
+}
+
 /* ── App root ─────────────────────────────────────── */
 .app-root {
   display: flex;
@@ -4044,7 +4138,7 @@ defineExpose({
   border: 1.5px solid rgba(255, 200, 80, 0.2);
   background: rgba(20, 10, 2, 0.6);
   color: var(--text-light);
-  font-size: 0.95rem;
+  font-size: 1.5rem;
   outline: none;
   transition: all 0.2s;
   font-family: inherit;
@@ -4289,7 +4383,7 @@ defineExpose({
   border: 1.5px solid rgba(255, 215, 0, 0.2);
   background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
-  font-size: 0.9rem;
+  font-size: 1.5rem;
   outline: none;
   font-family: inherit;
   transition: border-color 0.2s;
@@ -4335,7 +4429,7 @@ defineExpose({
   border: 1.5px solid rgba(255, 200, 80, 0.2);
   background: rgba(20, 10, 2, 0.5);
   color: var(--text-light);
-  font-size: 0.8rem;
+  font-size: 1.5rem;
   outline: none;
   font-family: inherit;
   text-align: center;
@@ -5233,7 +5327,7 @@ defineExpose({
   border: 2px solid rgba(255, 255, 255, 0.15);
   background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
-  font-size: 0.8rem;
+  font-size: 1.5rem;
   font-family: inherit;
   outline: none;
   transition: all 0.2s;
@@ -5344,7 +5438,7 @@ defineExpose({
   border: 2px solid rgba(255, 255, 255, 0.15);
   background: rgba(33, 37, 41, 0.5);
   color: var(--text-light);
-  font-size: 0.9rem;
+  font-size: 1.5rem;
   font-family: inherit;
   outline: none;
   transition: all 0.2s;
