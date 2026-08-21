@@ -1,0 +1,131 @@
+import { ref, computed } from "vue";
+import {
+  getCurrentUser,
+  signOut as supabaseSignOut,
+  onAuthStateChange,
+} from "../supabase";
+
+// Auth state
+const user = ref(null);
+const loading = ref(true);
+const error = ref(null);
+const showAuthModal = ref(false);
+
+// Computed properties
+const isAuthenticated = computed(() => !!user.value);
+const userEmail = computed(() => user.value?.email || null);
+const userAppMetadata = computed(() => user.value?.user_metadata || {});
+
+// Check if user belongs to tu-valu app
+const isTuValuUser = computed(() => {
+  return user.value?.user_metadata?.app_name === "tu-valu";
+});
+
+// Initialize auth state
+export async function initAuth() {
+  try {
+    loading.value = true;
+    error.value = null;
+
+    // Get current user
+    const { user: currentUser, error: userError } = await getCurrentUser();
+
+    // No session is normal for first-time users - don't treat as error
+    if (userError && userError.message !== "Auth session missing!") {
+      throw userError;
+    }
+
+    user.value = currentUser || null;
+
+    // Show auth modal if not authenticated
+    if (!currentUser) {
+      showAuthModal.value = true;
+    }
+
+    // Validate app membership if user exists
+    if (currentUser && !isTuValuUser.value) {
+      console.warn("User does not belong to tu-valu app");
+      // Optionally sign out users from other apps
+      // await supabaseSignOut()
+      // user.value = null
+    }
+  } catch (err) {
+    // Only set error if it's not a session missing error
+    if (err.message !== "Auth session missing!") {
+      error.value = err.message;
+      console.error("Auth initialization error:", err);
+    }
+    // Show auth modal on error too
+    showAuthModal.value = true;
+  } finally {
+    loading.value = false;
+  }
+
+  // Listen for auth state changes
+  onAuthStateChange((event, session) => {
+    console.log("Auth state changed:", event);
+
+    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      user.value = session?.user || null;
+
+      // Validate app membership
+      if (user.value && user.value.user_metadata?.app_name !== "tu-valu") {
+        console.warn("User from different app signed in");
+      }
+    } else if (event === "SIGNED_OUT") {
+      user.value = null;
+      showAuthModal.value = true;
+    } else if (event === "USER_UPDATED") {
+      user.value = session?.user || null;
+    }
+
+    loading.value = false;
+  });
+}
+
+// Sign out
+export async function signOut() {
+  try {
+    loading.value = true;
+    error.value = null;
+
+    const { error: signOutError } = await supabaseSignOut();
+
+    if (signOutError) {
+      throw signOutError;
+    }
+
+    user.value = null;
+    showAuthModal.value = true;
+  } catch (err) {
+    error.value = err.message;
+    console.error("Sign out error:", err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+// Show/hide auth modal
+export function showAuth() {
+  showAuthModal.value = true;
+}
+
+export function hideAuth() {
+  showAuthModal.value = false;
+}
+
+// Clear error
+export function clearError() {
+  error.value = null;
+}
+
+export {
+  user,
+  loading,
+  error,
+  showAuthModal,
+  isAuthenticated,
+  userEmail,
+  userAppMetadata,
+  isTuValuUser,
+};

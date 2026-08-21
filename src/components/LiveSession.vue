@@ -19,9 +19,11 @@ import {
   Funnel,
   createLucideIcon,
   PenIcon,
+  LogOut,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
+import { signOut, userEmail } from "../stores/auth";
 
 const BASE = import.meta.env.BASE_URL; // "/tu-valu/"
 
@@ -146,7 +148,7 @@ const levelCounts = ref({}); // { studentId: { skillId: { level: count } } }
 const currentStudents = computed(() => {
   const excluded = excludedStudentIds.value;
 
-  // Filter allStudents based on checked classes/students and exclusions
+  // Filter allStudents based on checked classes/students, exclusions, and gender
   return allStudents.value
     .filter((s) => {
       // Check if student is in a checked class
@@ -156,7 +158,19 @@ const currentStudents = computed(() => {
       // Check if student is excluded
       const isExcluded = excluded.has(s.id);
 
-      return (isInCheckedClass || isIndividuallyChecked) && !isExcluded;
+      // Apply gender filter
+      let matchesGender = true;
+      if (genderFilter.value === "male") {
+        matchesGender = s.gender === "M";
+      } else if (genderFilter.value === "female") {
+        matchesGender = s.gender === "F";
+      }
+
+      return (
+        (isInCheckedClass || isIndividuallyChecked) &&
+        !isExcluded &&
+        matchesGender
+      );
     })
     .sort((a, b) =>
       (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
@@ -165,17 +179,16 @@ const currentStudents = computed(() => {
 
 // Current evaluations/skills to display
 const currentSkills = computed(() => {
-  if (checkedSkillIds.value.size > 0) {
-    // Return individually selected skills
-    return skills.value.filter((sk) => checkedSkillIds.value.has(sk.id));
-  } else if (checkedEvalIds.value.size > 0) {
-    // Return all skills from selected evaluations
-    return skills.value.filter((sk) =>
-      checkedEvalIds.value.has(sk.evaluation_id),
-    );
-  }
-  return [];
+  // Simply return all skills that are in checkedSkillIds
+  return skills.value.filter((sk) => checkedSkillIds.value.has(sk.id));
 });
+
+// ── Logout handler ────────────────────────────────────
+async function handleLogout() {
+  if (confirm("Are you sure you want to sign out?")) {
+    await signOut();
+  }
+}
 
 // ── Load all data on mount ────────────────────────────
 async function loadAllData() {
@@ -197,10 +210,10 @@ async function loadAllData() {
   evaluations.value = evalData || [];
 
   // Load ALL students at once (single source of truth)
+  // Don't order in database - we'll sort in JavaScript with proper French locale
   const { data: studentData } = await supabase
     .from("tu_students")
-    .select("id, firstname, lastname, gender, class_id")
-    .order("firstname");
+    .select("id, firstname, lastname, gender, class_id");
   allStudents.value = studentData || [];
 
   // Load skills
@@ -336,7 +349,7 @@ function clearEvalSelection() {
   checkedEvalIds.value = new Set();
   checkedSkillIds.value = new Set();
   excludedSkillIds.value = new Set();
-  skills.value = [];
+  // Don't clear skills.value - that's the master list from the database
 }
 
 function selectEval(id) {
@@ -372,12 +385,19 @@ function getClassName(classId) {
 
 async function selectClassInModal(classId) {
   selectedClassId.value = classId;
+  // Close class detail when selecting a different class
+  classDetailId.value = null;
 }
 
 // Computed to get students for the currently selected class (reactive)
 const currentClassStudents = computed(() => {
   if (!selectedClassId.value) return [];
-  return allStudents.value.filter((s) => s.class_id === selectedClassId.value);
+
+  return allStudents.value
+    .filter((s) => s.class_id === selectedClassId.value)
+    .sort((a, b) =>
+      (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
+    );
 });
 
 // Helper to get skills for a specific evaluation (reactive)
@@ -386,31 +406,171 @@ function getSkillsForEval(evalId) {
 }
 
 async function handleAddStudentToClass(classId) {
-  classDetailId.value = classId;
+  if (!classId) return;
+
+  // Create a new student with default name
+  const { data, error } = await supabase
+    .from("tu_students")
+    .insert({
+      firstname: "Nouvel",
+      lastname: "Élève",
+      class_id: classId,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to add student:", error);
+    alert("Erreur lors de l'ajout de l'élève");
+    return;
+  }
+
+  // Add to allStudents array
+  allStudents.value.push(data);
+
+  // Select the class if not already selected
+  selectedClassId.value = classId;
+
+  // Select the new student to show details immediately
+  studentDetailId.value = data.id;
 }
 
-function handleEvalClick(ev) {
-  toggleEvalExpand(ev);
+async function handleAddNewClass() {
+  // Create a new class with default name
+  const { data, error } = await supabase
+    .from("tu_classes")
+    .insert({ name: "Nouvelle classe" })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to create class:", error);
+    alert("Erreur lors de la création de la classe");
+    return;
+  }
+
+  // Add to classes array
+  classes.value.push(data);
+
+  // Open the class detail for editing
+  classDetailId.value = data.id;
+
+  // Select the new class
+  selectedClassId.value = data.id;
 }
 
-// ── Evaluation CRUD ────────────────────────────────────
-async function startEvalEdit(item) {
-  editingEvalId.value = item.id;
-  editingEvalTitle.value = item.title;
-  isAddingNewEval.value = false;
-  showNewSkillForm.value = false;
-  await loadEvalSkills(item.id);
-}
+// Selected evaluation for modal
+const selectedEvalId = ref(null);
 
-function cancelEvalEdit() {
+function selectEvalInModal(evalId) {
+  selectedEvalId.value = evalId;
+  // Close eval detail and skill detail when selecting a different eval
   editingEvalId.value = null;
-  editingEvalTitle.value = "";
-  isAddingNewEval.value = false;
-  editingSkills.value = [];
-  showNewSkillForm.value = false;
-  editingSkillIndex.value = null;
+  skillDetailId.value = null;
 }
 
+async function handleAddNewEval() {
+  // Create a new evaluation with default name
+  const { data, error } = await supabase
+    .from("tu_evaluations")
+    .insert({ title: "Nouvelle activité" })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to create evaluation:", error);
+    alert("Erreur lors de la création de l'activité");
+    return;
+  }
+
+  // Add to evaluations array
+  evaluations.value.push(data);
+
+  // Open the eval detail for editing
+  editingEvalId.value = data.id;
+  editingEvalTitle.value = data.title;
+
+  // Select the new eval
+  selectedEvalId.value = data.id;
+}
+
+async function saveEvalTitleInline() {
+  if (!editingEvalId.value || !editingEvalTitle.value.trim()) return;
+
+  await supabase
+    .from("tu_evaluations")
+    .update({ title: editingEvalTitle.value.trim() })
+    .eq("id", editingEvalId.value);
+
+  // Update local array
+  const evalIndex = evaluations.value.findIndex(
+    (e) => e.id === editingEvalId.value,
+  );
+  if (evalIndex !== -1) {
+    evaluations.value[evalIndex].title = editingEvalTitle.value.trim();
+  }
+}
+
+async function handleAddNewSkill(evalId) {
+  if (!evalId) return;
+
+  // Create a new skill with default name
+  const { data, error } = await supabase
+    .from("tu_skills")
+    .insert({
+      name: "Nouvelle habileté",
+      evaluation_id: evalId,
+      scale: ["1", "2", "3", "4", "5"],
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to add skill:", error);
+    alert("Erreur lors de l'ajout de l'habileté");
+    return;
+  }
+
+  // Add to skills array
+  skills.value.push(data);
+
+  // Select the new skill to show details immediately
+  skillDetailId.value = data.id;
+}
+
+async function addSkillToEval() {
+  if (!editingNewSkillName.value.trim() || !editingEvalId.value) return;
+
+  const { data, error } = await supabase
+    .from("tu_skills")
+    .insert({
+      name: editingNewSkillName.value.trim(),
+      evaluation_id: editingEvalId.value,
+      scale: ["1", "2", "3", "4", "5"],
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to add skill:", error);
+    return;
+  }
+
+  // Add to skills array
+  skills.value.push(data);
+
+  // Clear input
+  editingNewSkillName.value = "";
+}
+
+async function deleteSkillInline(skillId) {
+  if (!confirm("Supprimer cette habileté?")) return;
+
+  await supabase.from("tu_skills").delete().eq("id", skillId);
+
+  // Remove from skills array
+  skills.value = skills.value.filter((s) => s.id !== skillId);
+}
 // ── Skill CRUD (within eval edit) ──────────────────────
 async function loadEvalSkills(evalId) {
   if (!evalId) {
@@ -467,6 +627,16 @@ async function addSkill() {
     if (!skill) return;
     await supabase.from("tu_skills").update(payload).eq("id", skill.id);
     editingSkills.value[editingSkillIndex.value] = { ...skill, name, scale };
+
+    // Update in main skills list too
+    const mainSkillIndex = skills.value.findIndex((s) => s.id === skill.id);
+    if (mainSkillIndex !== -1) {
+      skills.value[mainSkillIndex] = {
+        ...skills.value[mainSkillIndex],
+        name,
+        scale,
+      };
+    }
   } else {
     // Create new skill
     const { data } = await supabase
@@ -476,6 +646,8 @@ async function addSkill() {
       .single();
     if (data) {
       editingSkills.value.push(data);
+      // Add to main skills list too
+      skills.value.push(data);
     }
   }
   cancelSkillForm();
@@ -495,10 +667,21 @@ async function saveSkill(skill, index) {
       .insert(payload)
       .select()
       .single();
-    if (data) editingSkills.value[index] = data;
+    if (data) {
+      editingSkills.value[index] = data;
+      // Add to main skills list
+      skills.value.push(data);
+    }
   } else {
     // Update
     await supabase.from("tu_skills").update(payload).eq("id", skill.id);
+    // Update in editing skills
+    editingSkills.value[index] = { ...editingSkills.value[index], ...payload };
+    // Update in main skills list
+    const mainIndex = skills.value.findIndex((s) => s.id === skill.id);
+    if (mainIndex !== -1) {
+      skills.value[mainIndex] = { ...skills.value[mainIndex], ...payload };
+    }
   }
 }
 
@@ -601,15 +784,13 @@ async function startSession() {
   // Use currentStudents computed array (already filtered and sorted)
   const stu = [...currentStudents.value];
 
-  // Use currentSkills computed array (already filtered based on selections)
-  const sk = [...currentSkills.value];
-
   students.value = stu;
-  skills.value = sk;
+  // Don't modify skills.value - it's the master array from the database
+  // Template uses currentSkills computed property for filtering
 
   // Load events for selected students and skills
   const studentIds = stu.map((s) => s.id);
-  const skillIds = sk.map((s) => s.id);
+  const skillIds = currentSkills.value.map((s) => s.id);
 
   if (studentIds.length > 0 && skillIds.length > 0) {
     const { data: eventsRes } = await supabase
@@ -658,7 +839,7 @@ async function startSession() {
 const sortedStudents = computed(() =>
   [...currentStudents.value].sort((a, b) => {
     const field = sortBy.value === "lastname" ? "lastname" : "firstname";
-    return (a[field] || "").localeCompare(b[field] || "");
+    return (a[field] || "").localeCompare(b[field] || "", "fr-FR");
   }),
 );
 
@@ -691,6 +872,14 @@ function getSkillScale(skill) {
     return skill.scale;
   }
   return ["1", "2", "3", "4", "5"];
+}
+
+// Calculate grid columns for zone segments - cap at ~12 per row for wrapping
+function getZoneGridColumns(skill) {
+  const scaleLength = getSkillScale(skill).length;
+  // Cap at 12 columns per row, will wrap to multiple rows if needed
+  const colsPerRow = Math.min(scaleLength, 12);
+  return `repeat(${colsPerRow}, 1fr)`;
 }
 
 function hasUsedLevel(studentId, skillId, level) {
@@ -1031,6 +1220,12 @@ const hasEvalSelection = computed(
   () => checkedEvalIds.value.size > 0 || checkedSkillIds.value.size > 0,
 );
 
+// Helper to check if an eval has any of its skills selected
+function evalHasSelectedSkills(evalId) {
+  const evSkills = getSkillsForEval(evalId);
+  return evSkills.some((sk) => checkedSkillIds.value.has(sk.id));
+}
+
 const evalSelectionSummary = computed(() => {
   const evalCount = checkedEvalIds.value.size;
   const skillCount = checkedSkillIds.value.size;
@@ -1111,47 +1306,35 @@ function handleStudentCheck(cls, student) {
 
 async function handleEvalCheck(ev) {
   const wasChecked = checkedEvalIds.value.has(ev.id);
-  toggleChecked(ev.id, "eval");
-  // Clear any excluded skills for this eval
   const evSkills = getSkillsForEval(ev.id);
-  const newExcluded = new Set(excludedSkillIds.value);
-  for (const sk of evSkills) {
-    newExcluded.delete(sk.id);
-  }
-  excludedSkillIds.value = newExcluded;
 
   if (wasChecked) {
-    // Unchecking — clear live view if no eval or skill remains selected
-    if (!hasEvalSelection.value) {
-      skills.value = [];
-      counts.value = {};
-      usedLevels.value = {};
-      levelCounts.value = {};
-      // Close report if it was open
-      reportModalOpen.value = false;
-    } else if (hasStudentSelection.value) {
-      startSession();
+    // Unchecking eval — unselect all its skills
+    toggleChecked(ev.id, "eval");
+
+    // Remove all skills of this eval from checkedSkillIds
+    for (const sk of evSkills) {
+      checkedSkillIds.value.delete(sk.id);
     }
-  } else if (hasStudentSelection.value) {
-    // Checking — reload live view
-    startSession();
+  } else {
+    // Checking eval — select all its skills
+    toggleChecked(ev.id, "eval");
+
+    // Add all skills of this eval to checkedSkillIds
+    for (const sk of evSkills) {
+      checkedSkillIds.value.add(sk.id);
+    }
   }
 }
 
 function handleSkillCheck(ev, skill) {
-  if (checkedEvalIds.value.has(ev.id)) {
-    // Eval is checked — toggle this skill's exclusion
-    const newExcluded = new Set(excludedSkillIds.value);
-    if (newExcluded.has(skill.id)) {
-      newExcluded.delete(skill.id);
-    } else {
-      newExcluded.add(skill.id);
-    }
-    excludedSkillIds.value = newExcluded;
+  // Simply toggle the skill in checkedSkillIds
+  if (checkedSkillIds.value.has(skill.id)) {
+    checkedSkillIds.value.delete(skill.id);
   } else {
-    // Eval is not checked — toggle individual skill
-    toggleChecked(skill.id, "skill");
+    checkedSkillIds.value.add(skill.id);
   }
+
   // Reload live view to reflect skill changes
   if (hasEvalSelection.value && hasStudentSelection.value) startSession();
 }
@@ -1180,6 +1363,11 @@ function getInitials(firstname, lastname) {
 
 // ── Student detail form ──────────────────────────────────
 const studentDetailEditing = ref(null); // Local copy for editing
+
+// Clear student detail when selected class changes
+watch(selectedClassId, () => {
+  studentDetailId.value = null;
+});
 
 watch(studentDetailId, async (id) => {
   if (!id) {
@@ -1368,6 +1556,18 @@ watch(skillDetailId, async (id) => {
     skillDetailData.value = { ...skill };
     // Create a local copy for editing
     skillDetailEditing.value = { ...skill };
+
+    // Initialize scale inputs from skill's scale
+    const nums = skill.scale.map(Number).filter((n) => !isNaN(n));
+    if (nums.length > 0) {
+      editingNewSkillMin.value = Math.min(...nums);
+      editingNewSkillMax.value = Math.max(...nums);
+      editingNewSkillStep.value = nums.length > 1 ? nums[1] - nums[0] : 1;
+    } else {
+      editingNewSkillMin.value = 1;
+      editingNewSkillMax.value = 5;
+      editingNewSkillStep.value = 1;
+    }
   } else {
     // Fallback: load from Supabase if not in skills
     const { data } = await supabase
@@ -1384,6 +1584,18 @@ watch(skillDetailId, async (id) => {
     skillDetailEditing.value = skillDetailData.value
       ? { ...skillDetailData.value }
       : null;
+
+    // Initialize scale inputs from loaded skill's scale
+    if (skillDetailEditing.value?.scale) {
+      const nums = skillDetailEditing.value.scale
+        .map(Number)
+        .filter((n) => !isNaN(n));
+      if (nums.length > 0) {
+        editingNewSkillMin.value = Math.min(...nums);
+        editingNewSkillMax.value = Math.max(...nums);
+        editingNewSkillStep.value = nums.length > 1 ? nums[1] - nums[0] : 1;
+      }
+    }
   }
 });
 
@@ -1424,6 +1636,26 @@ async function saveSkillDetail() {
 
   // Reload live view if active
   if (hasStudentSelection.value && hasEvalSelection.value) startSession();
+}
+
+function updateScaleFromInputs() {
+  if (!skillDetailEditing.value) return;
+
+  const min = Number(editingNewSkillMin.value);
+  const max = Number(editingNewSkillMax.value);
+  const step = Number(editingNewSkillStep.value);
+
+  if (isNaN(min) || isNaN(max) || isNaN(step) || step <= 0) return;
+  if (min >= max) return;
+
+  // Generate scale array from min, max, step
+  const scale = [];
+  for (let val = min; val <= max + 0.0001; val += step) {
+    // Round to avoid floating point errors
+    scale.push(Math.round(val * 100) / 100);
+  }
+
+  skillDetailEditing.value.scale = scale;
 }
 
 const skillMin = computed(() => {
@@ -1620,7 +1852,13 @@ const reportStudentsByClass = computed(() => {
     }
     groups[classId].students.push(s);
   }
-  return Object.values(groups);
+  // Sort students within each group by firstname using French locale
+  return Object.values(groups).map((group) => ({
+    ...group,
+    students: group.students.sort((a, b) =>
+      (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
+    ),
+  }));
 });
 
 async function loadReportData() {
@@ -2004,7 +2242,6 @@ defineExpose({
 
 <template>
   <div class="app-root">
-    <!-- ── TOP BAR (menu buttons) ──────────────────────── -->
     <div class="top-bar">
       <div class="top-bar-left">
         <button
@@ -2064,6 +2301,15 @@ defineExpose({
         </button>
       </div>
       <div class="top-bar-spacer"></div>
+      <div class="top-bar-right">
+        <div v-if="userEmail" class="user-info">
+          <span class="user-email">{{ userEmail }}</span>
+        </div>
+        <button class="logout-btn" title="Sign out" @click="handleLogout">
+          <LogOut :size="20" />
+          <span>Logout</span>
+        </button>
+      </div>
     </div>
 
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
@@ -2072,11 +2318,11 @@ defineExpose({
       <div class="live-screen">
         <!-- Drop zones -->
         <div
-          v-if="skills.length > 0 && currentStudents.length > 0"
+          v-if="currentSkills.length > 0 && currentStudents.length > 0"
           class="zones-container"
           :class="{
             'zones-container--enter': liveAnimating,
-            'zones-container--grid': skills.length > 3,
+            'zones-container--grid': currentSkills.length > 5,
           }"
         >
           <div
@@ -2109,7 +2355,10 @@ defineExpose({
               </span>
             </div>
 
-            <div class="zone-segments">
+            <div
+              class="zone-segments"
+              :style="{ gridTemplateColumns: getZoneGridColumns(skill) }"
+            >
               <div
                 v-for="level in getSkillScale(skill)"
                 :key="level"
@@ -2173,260 +2422,253 @@ defineExpose({
             class="picker-panel class-modal picker-panel--full class-modal--bg"
           >
             <div class="class-modal-body">
-              <!-- Close button for list view -->
+              <!-- Close button -->
               <button
-                v-if="studentDetailId === null && classDetailId === null"
+                v-if="studentDetailId === null"
                 class="close-modal-btn"
                 @click="classModalOpen = false"
               >
                 <ChevronUp :size="36" :stroke-width="3" />
               </button>
 
-              <Transition name="slide-edit" mode="out-in">
-                <div
-                  v-if="studentDetailId !== null && studentDetailData"
-                  key="student-detail"
-                  class="student-detail-form"
-                >
-                  <!-- Navigation bar inside student detail -->
-                  <div class="detail-nav-bar detail-nav-bar--inline">
-                    <button class="back-btn" @click="studentDetailId = null">
-                      <ChevronLeft :size="36" :stroke-width="3" />
+              <!-- 3-column layout for class management -->
+              <div class="class-three-column-layout">
+                <!-- Column 1: Classes list -->
+                <div class="class-column">
+                  <div class="column-header">
+                    <h3>Classes</h3>
+                    <button
+                      class="picker-item picker-item--inline add-btn"
+                      @click="handleAddNewClass"
+                    >
+                      <Plus :size="20" :stroke-width="3" />
                     </button>
-                    <div class="detail-actions">
-                      <button
-                        class="header-trash-btn"
-                        title="Supprimer l'élève"
-                        @click="deleteStudentFromDetail"
-                      >
-                        <Trash2 :size="24" />
-                      </button>
-                    </div>
                   </div>
-
-                  <div class="student-detail-layout">
-                    <!-- Photo placeholder -->
-                    <div class="student-detail-photo">
-                      <div class="student-photo-circle">
-                        <span class="student-photo-initials">{{
-                          getInitials(
-                            studentDetailEditing?.firstname ||
-                              studentDetailData?.firstname,
-                            studentDetailEditing?.lastname ||
-                              studentDetailData?.lastname,
-                          )
-                        }}</span>
-                      </div>
-                    </div>
-
-                    <!-- Right column: fields -->
-                    <div class="student-detail-fields">
-                      <div class="detail-section">
-                        <label class="detail-label">Prénom</label>
-                        <input
-                          v-model="studentDetailEditing.firstname"
-                          class="detail-input"
-                          placeholder="Prénom"
-                          @blur="saveStudentDetail"
-                        />
-                      </div>
-                      <div class="detail-section">
-                        <label class="detail-label">Nom</label>
-                        <input
-                          v-model="studentDetailEditing.lastname"
-                          class="detail-input"
-                          placeholder="Nom"
-                          @blur="saveStudentDetail"
-                        />
-                      </div>
-                      <div class="detail-section">
-                        <label class="detail-label">Sexe</label>
-                        <div class="gender-selector">
-                          <button
-                            class="gender-btn"
-                            :class="{
-                              active: studentDetailEditing.gender === 'M',
-                            }"
-                            @click="toggleGender('M')"
+                  <div class="class-list">
+                    <div v-for="cls in classes" :key="cls.id">
+                      <button
+                        class="picker-item class-item"
+                        :class="{
+                          selected: selectedClassId === cls.id,
+                        }"
+                        @click="selectClassInModal(cls.id)"
+                      >
+                        <div>{{ cls.name }}</div>
+                        <div class="class-item-buttons">
+                          <div
+                            class="edit-class-btn-small"
+                            @click.stop="classDetailId = cls.id"
+                            title="Modifier la classe"
                           >
-                            M
-                          </button>
-                          <button
-                            class="gender-btn"
-                            :class="{
-                              active: studentDetailEditing.gender === 'F',
-                            }"
-                            @click="toggleGender('F')"
-                          >
-                            F
-                          </button>
-                        </div>
-                      </div>
-                      <div
-                        v-if="studentDetailData.class_name"
-                        class="detail-section"
-                      >
-                        <label class="detail-label">Classe</label>
-                        <span class="class-pill">{{
-                          studentDetailData.class_name
-                        }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div
-                  v-else-if="classDetailId !== null"
-                  key="edit"
-                  class="class-detail-wrapper"
-                >
-                  <!-- Navigation bar inside class detail -->
-                  <div class="detail-nav-bar detail-nav-bar--inline">
-                    <button class="back-btn" @click="classDetailId = null">
-                      <ChevronLeft :size="36" :stroke-width="3" />
-                    </button>
-                    <span>{{ editingClassTitle }}</span>
-                    <div class="detail-actions">
-                      <button
-                        v-if="classDetailId !== 'new'"
-                        class="header-trash-btn"
-                        title="Supprimer la classe"
-                        @click="deleteClass(classDetailId)"
-                      >
-                        <Trash2 :size="24" />
-                      </button>
-                    </div>
-                  </div>
-                  <ClassDetail
-                    :class-id="classDetailId === 'new' ? null : classDetailId"
-                    @close="classDetailId = null"
-                    @saved="onClassDetailSaved"
-                    @deleted="onClassDetailDeleted"
-                    @edit-student="studentDetailId = $event"
-                    @remove-student="handleRemoveStudent"
-                  />
-                </div>
-                <div v-else key="list" class="class-two-column-layout">
-                  <!-- Left column: Classes -->
-                  <div class="class-column">
-                    <div class="column-header">
-                      <h3>Classes</h3>
-                      <button
-                        class="picker-item picker-item--inline add-btn"
-                        @click="classDetailId = 'new'"
-                      >
-                        <Plus :size="20" :stroke-width="3" />
-                      </button>
-                    </div>
-                    <div class="class-list">
-                      <div v-for="cls in classes" :key="cls.id">
-                        <button
-                          class="picker-item class-item"
-                          :class="{
-                            selected: selectedClassId === cls.id,
-                          }"
-                          @click="selectClassInModal(cls.id)"
-                        >
-                          <div>{{ cls.name }}</div>
-                          <div class="class-item-buttons">
-                            <div
-                              class="edit-class-btn-small"
-                              @click.stop="classDetailId = cls.id"
-                              title="Modifier la classe"
-                            >
-                              <PenIcon :size="16" />
-                            </div>
-                            <div
-                              class="row-checkbox"
-                              :class="{ checked: checkedClassIds.has(cls.id) }"
-                              @click.stop="handleClassCheck(cls)"
-                            >
-                              <Check
-                                v-if="checkedClassIds.has(cls.id)"
-                                :size="24"
-                                :stroke-width="3"
-                              />
-                            </div>
+                            <PenIcon :size="16" />
                           </div>
-                        </button>
-                      </div>
-                      <div v-if="classes.length === 0" class="picker-empty">
-                        Aucune classe
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Right column: Students -->
-                  <div class="students-column">
-                    <div class="column-header">
-                      <h3>
-                        {{
-                          selectedClassId
-                            ? `Élèves - ${getClassName(selectedClassId)}`
-                            : "Sélectionnez une classe"
-                        }}
-                      </h3>
-                      <button
-                        v-if="selectedClassId"
-                        class="picker-item picker-item--inline add-btn"
-                        @click="handleAddStudentToClass(selectedClassId)"
-                      >
-                        <Plus :size="20" :stroke-width="3" />
-                      </button>
-                    </div>
-                    <div v-if="selectedClassId" class="student-list">
-                      <div
-                        v-for="student in currentClassStudents"
-                        :key="student.id"
-                        class="student-item-row"
-                      >
-                        <button
-                          class="picker-item student-item"
-                          @click="studentDetailId = student.id"
-                        >
-                          <span
-                            >{{ student.firstname }}
-                            {{ student.lastname }}</span
-                          >
-                          <span
+                          <div
                             class="row-checkbox"
-                            :class="{
-                              checked:
-                                checkedStudentIds.has(student.id) ||
-                                (checkedClassIds.has(selectedClassId) &&
-                                  !excludedStudentIds.has(student.id)),
-                            }"
-                            @click.stop="
-                              handleStudentCheck(
-                                { id: selectedClassId },
-                                student,
-                              )
-                            "
+                            :class="{ checked: checkedClassIds.has(cls.id) }"
+                            @click.stop="handleClassCheck(cls)"
                           >
                             <Check
-                              v-if="
-                                checkedStudentIds.has(student.id) ||
-                                (checkedClassIds.has(selectedClassId) &&
-                                  !excludedStudentIds.has(student.id))
-                              "
+                              v-if="checkedClassIds.has(cls.id)"
                               :size="24"
                               :stroke-width="3"
                             />
-                          </span>
-                        </button>
-                      </div>
-                      <div
-                        v-if="!currentClassStudents?.length"
-                        class="picker-empty"
-                      >
-                        Aucun élève dans cette classe
-                      </div>
-                    </div>
-                    <div v-else class="picker-empty select-prompt">
-                      Cliquez sur une classe pour voir ses élèves
+                          </div>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 </div>
-              </Transition>
+
+                <!-- Column 2: Students or Class Detail -->
+                <div class="students-column">
+                  <Transition name="fade-slide" mode="out-in">
+                    <!-- Show ClassDetail form when editing a class -->
+                    <div
+                      v-if="classDetailId !== null"
+                      :key="'class-detail'"
+                      class="class-detail-container"
+                    >
+                      <ClassDetail
+                        :class-id="
+                          classDetailId === 'new' ? null : classDetailId
+                        "
+                        @close="classDetailId = null"
+                        @saved="onClassDetailSaved"
+                        @deleted="onClassDetailDeleted"
+                        @edit-student="studentDetailId = $event"
+                        @remove-student="handleRemoveStudent"
+                      />
+                    </div>
+                    <!-- Otherwise show student list -->
+                    <div
+                      v-else
+                      :key="'student-list'"
+                      class="students-column-content"
+                    >
+                      <div class="column-header">
+                        <h3>
+                          {{
+                            selectedClassId
+                              ? `Élèves`
+                              : "Sélectionnez une classe"
+                          }}
+                        </h3>
+                        <button
+                          v-if="selectedClassId"
+                          class="picker-item picker-item--inline add-btn"
+                          @click="handleAddStudentToClass(selectedClassId)"
+                        >
+                          <Plus :size="20" :stroke-width="3" />
+                        </button>
+                      </div>
+                      <div v-if="selectedClassId" class="student-list">
+                        <div
+                          v-for="student in currentClassStudents"
+                          :key="student.id"
+                          class="student-item-row"
+                        >
+                          <button
+                            class="picker-item student-item"
+                            :class="{
+                              selected: studentDetailId === student.id,
+                            }"
+                            @click="studentDetailId = student.id"
+                          >
+                            <span
+                              >{{ student.firstname }}
+                              {{ student.lastname }}</span
+                            >
+                            <span
+                              class="row-checkbox"
+                              :class="{
+                                checked:
+                                  checkedStudentIds.has(student.id) ||
+                                  (checkedClassIds.has(selectedClassId) &&
+                                    !excludedStudentIds.has(student.id)),
+                              }"
+                              @click.stop="
+                                handleStudentCheck(
+                                  { id: selectedClassId },
+                                  student,
+                                )
+                              "
+                            >
+                              <Check
+                                v-if="
+                                  checkedStudentIds.has(student.id) ||
+                                  (checkedClassIds.has(selectedClassId) &&
+                                    !excludedStudentIds.has(student.id))
+                                "
+                                :size="24"
+                                :stroke-width="3"
+                              />
+                            </span>
+                          </button>
+                        </div>
+                        <div
+                          v-if="!currentClassStudents?.length"
+                          class="picker-empty"
+                        >
+                          Aucun élève dans cette classe
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <!-- Column 3: Student details (when editing) -->
+                <Transition name="fade-slide" mode="out-in">
+                  <div
+                    v-if="studentDetailId !== null && studentDetailData"
+                    class="student-detail-column"
+                  >
+                    <div class="student-detail-layout">
+                      <!-- Photo placeholder -->
+                      <div class="student-detail-photo">
+                        <div class="student-photo-circle">
+                          <span class="student-photo-initials">{{
+                            getInitials(
+                              studentDetailEditing?.firstname ||
+                                studentDetailData?.firstname,
+                              studentDetailEditing?.lastname ||
+                                studentDetailData?.lastname,
+                            )
+                          }}</span>
+                        </div>
+                      </div>
+
+                      <!-- Right column: fields -->
+                      <div class="student-detail-fields">
+                        <div class="detail-section">
+                          <label class="detail-label">Prénom</label>
+                          <input
+                            v-model="studentDetailEditing.firstname"
+                            class="detail-input"
+                            placeholder="Prénom"
+                            @blur="saveStudentDetail"
+                          />
+                        </div>
+                        <div class="detail-section">
+                          <label class="detail-label">Nom</label>
+                          <input
+                            v-model="studentDetailEditing.lastname"
+                            class="detail-input"
+                            placeholder="Nom"
+                            @blur="saveStudentDetail"
+                          />
+                        </div>
+                        <div class="detail-section">
+                          <label class="detail-label">Sexe</label>
+                          <div class="gender-selector">
+                            <button
+                              class="gender-btn"
+                              :class="{
+                                active: studentDetailEditing.gender === 'M',
+                              }"
+                              @click="toggleGender('M')"
+                            >
+                              M
+                            </button>
+                            <button
+                              class="gender-btn"
+                              :class="{
+                                active: studentDetailEditing.gender === 'F',
+                              }"
+                              @click="toggleGender('F')"
+                            >
+                              F
+                            </button>
+                          </div>
+                        </div>
+                        <div
+                          v-if="studentDetailData.class_name"
+                          class="detail-section"
+                        >
+                          <label class="detail-label">Classe</label>
+                          <span class="class-pill">{{
+                            studentDetailData.class_name
+                          }}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Navigation bar -->
+                    <div class="detail-nav-bar detail-nav-bar--inline">
+                      <!-- <button class="back-btn" @click="studentDetailId = null">
+                        <ChevronLeft :size="36" :stroke-width="3" />
+                      </button> -->
+                      <div class="detail-actions">
+                        <button
+                          class="header-trash-btn"
+                          title="Supprimer l'élève"
+                          @click="deleteStudentFromDetail"
+                        >
+                          <Trash2 :size="36" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
             </div>
           </div>
 
@@ -2436,427 +2678,331 @@ defineExpose({
             key="eval"
             class="picker-panel class-modal picker-panel--full eval-bg"
           >
-            <div class="picker-panel-header">
-              <div class="header-left">
-                <button
-                  v-if="skillDetailId !== null"
-                  class="back-btn"
-                  @click="skillDetailId = null"
-                >
-                  <ChevronLeft :size="36" :stroke-width="3" />
-                </button>
-                <button
-                  v-else-if="editingEvalId || isAddingNewEval"
-                  class="back-btn"
-                  @click="
-                    cancelEvalEdit();
-                    isAddingNewEval = false;
-                  "
-                >
-                  <ChevronLeft :size="36" :stroke-width="3" />
-                </button>
-                <span v-if="skillDetailId !== null">{{ skillDetailName }}</span>
-                <span v-else-if="editingEvalId && !isAddingNewEval">{{
-                  editingEvalTitle
-                }}</span>
-                <span v-else class="header-title-group">
-                  <span>Activités</span>
-                </span>
-              </div>
-              <div class="header-actions">
-                <button
-                  v-if="skillDetailId !== null"
-                  class="header-trash-btn"
-                  title="Supprimer l'habileté"
-                  @click="deleteSkillFromDetail"
-                >
-                  <Trash2 :size="24" />
-                </button>
-                <button
-                  v-if="
-                    editingEvalId && !isAddingNewEval && skillDetailId === null
-                  "
-                  class="header-trash-btn"
-                  @click="handleDeleteEval"
-                  title="Supprimer l'évaluation"
-                >
-                  <Trash2 :size="24" />
-                </button>
-                <button class="close-btn" @click="evalModalOpen = false">
-                  <ChevronUp :size="36" :stroke-width="3" />
-                </button>
-              </div>
-            </div>
-
             <div class="class-modal-body">
-              <Transition name="slide-edit" mode="out-in">
-                <div
-                  v-if="skillDetailId !== null && skillDetailData"
-                  key="skill-detail"
-                  class="skill-detail-form"
-                >
-                  <div class="skill-detail-layout">
-                    <!-- Icon picker -->
-                    <div class="skill-detail-icon">
-                      <div
-                        class="skill-icon-circle"
-                        :class="{ 'picker-open': showSkillIconPicker }"
-                        @click="showSkillIconPicker = !showSkillIconPicker"
-                        title="Choisir une icône"
-                      >
-                        <img
-                          v-if="
-                            skillDetailEditing?.icon || skillDetailData?.icon
-                          "
-                          :src="`${BASE}icons/skills/${skillDetailEditing?.icon || skillDetailData?.icon}.svg`"
-                          class="skill-icon-img"
-                          alt=""
-                        />
-                        <span v-else class="skill-icon-letter">?</span>
-                      </div>
-                      <div v-if="showSkillIconPicker" class="icon-picker">
-                        <div class="icon-picker-search">
-                          <input
-                            v-model="iconPickerSearch"
-                            class="icon-picker-input"
-                            placeholder="Chercher une icône…"
-                            autofocus
-                          />
-                        </div>
-                        <div class="icon-picker-grid">
-                          <button
-                            v-for="iconName in filteredSkillIcons"
-                            :key="iconName"
-                            class="icon-picker-option"
-                            :class="{
-                              selected: skillDetailEditing.icon === iconName,
-                            }"
-                            @click="selectSkillIcon(iconName)"
-                            :title="iconName"
-                          >
-                            <img
-                              :src="`${BASE}icons/skills/${iconName}.svg`"
-                              class="icon-picker-img"
-                              alt=""
-                            />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+              <!-- Close button -->
+              <button
+                v-if="skillDetailId === null && editingEvalId === null"
+                class="close-modal-btn"
+                @click="evalModalOpen = false"
+              >
+                <ChevronUp :size="36" :stroke-width="3" />
+              </button>
 
-                    <!-- Right column: fields -->
-                    <div class="skill-detail-fields">
-                      <div class="detail-section">
-                        <label class="detail-label">Nom</label>
-                        <input
-                          v-model="skillDetailEditing.name"
-                          class="detail-input"
-                          placeholder="Nom de l'habileté"
-                          @blur="saveSkillDetail"
-                        />
-                      </div>
-                      <div class="detail-section">
-                        <label class="detail-label">Échelle d'évaluation</label>
-                        <div class="skill-scale-config">
-                          <label class="scale-field">
-                            <span class="scale-label">Min</span>
-                            <input
-                              :value="skillMin"
-                              type="number"
-                              class="scale-input"
-                              min="0"
-                              @change="skillMinEdit($event)"
-                            />
-                          </label>
-                          <label class="scale-field">
-                            <span class="scale-label">Max</span>
-                            <input
-                              :value="skillMax"
-                              type="number"
-                              class="scale-input"
-                              min="0"
-                              @change="skillMaxEdit($event)"
-                            />
-                          </label>
-                          <label class="scale-field">
-                            <span class="scale-label">Pas</span>
-                            <input
-                              :value="skillStep"
-                              type="number"
-                              class="scale-input"
-                              min="0.1"
-                              step="0.1"
-                              @change="skillStepEdit($event)"
-                            />
-                          </label>
-                        </div>
-                        <div class="scale-preview">
-                          <span class="scale-preview-label">Aperçu :</span>
-                          <span class="scale-preview-values">
-                            {{ skillDetailData.scale?.join(" · ") }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-else-if="editingEvalId || isAddingNewEval" key="edit">
-                  <template v-if="isAddingNewEval">
-                    <div class="class-edit-row">
-                      <input
-                        v-model="editingEvalTitle"
-                        class="edit-input"
-                        autofocus
-                        placeholder="Titre de l'évaluation"
-                        @blur="addNewEval"
-                        @keyup.enter="addNewEval"
-                        @keyup.escape="
-                          cancelEvalEdit();
-                          isAddingNewEval = false;
-                        "
-                      />
-                    </div>
-                  </template>
-
-                  <template v-else>
-                    <div
-                      v-for="ev in evaluations"
-                      :key="ev.id"
-                      class="class-edit-row"
+              <!-- 3-column layout for evaluation management -->
+              <div class="class-three-column-layout">
+                <!-- Column 1: Evaluations list -->
+                <div class="class-column">
+                  <div class="column-header">
+                    <h3>Activités</h3>
+                    <button
+                      class="picker-item picker-item--inline add-btn"
+                      @click="handleAddNewEval"
                     >
-                      <template v-if="editingEvalId === ev.id">
-                        <div class="eval-name-row">
-                          <label class="eval-label">Nom</label>
-                          <input
-                            v-model="editingEvalTitle"
-                            class="edit-input"
-                            autofocus
-                            @blur="saveEvalTitle(ev)"
-                            @keyup.enter="saveEvalEdit(ev)"
-                            @keyup.escape="cancelEvalEdit"
-                          />
-                        </div>
-                        <div class="skills-section">
-                          <div class="skills-header">
-                            Habiletés
-                            <span class="skills-count">{{
-                              editingSkills.length
-                            }}</span>
+                      <Plus :size="20" :stroke-width="3" />
+                    </button>
+                  </div>
+                  <div class="class-list">
+                    <div v-for="ev in evaluations" :key="ev.id">
+                      <button
+                        class="picker-item class-item"
+                        :class="{
+                          selected: selectedEvalId === ev.id,
+                        }"
+                        @click="selectEvalInModal(ev.id)"
+                      >
+                        <div>{{ ev.title }}</div>
+                        <div class="class-item-buttons">
+                          <div
+                            class="edit-class-btn-small"
+                            @click.stop="editingEvalId = ev.id"
+                            title="Modifier l'activité"
+                          >
+                            <PenIcon :size="16" />
                           </div>
                           <div
-                            v-for="(sk, si) in editingSkills"
-                            :key="sk.id || si"
-                            class="skill-row"
-                          >
-                            <img
-                              v-if="sk.icon"
-                              :src="`${BASE}icons/skills/${sk.icon}.svg`"
-                              class="skill-row-icon"
-                              alt=""
-                            />
-                            <span
-                              class="skill-name"
-                              @click="skillDetailId = sk.id"
-                            >
-                              {{ sk.name }}
-                            </span>
-                            <span class="skill-scale-preview">
-                              {{ sk.scale?.[0] || "?" }} →
-                              {{ sk.scale?.[sk.scale.length - 1] || "?" }}
-                              ({{ sk.scale?.length || 0 }}
-                              niveaux)
-                            </span>
-                            <span class="skill-row-actions">
-                              <X :size="20" @click="removeSkill(sk, si)" />
-                            </span>
-                          </div>
-
-                          <template v-if="showNewSkillForm">
-                            <div class="skill-add-form">
-                              <input
-                                v-model="editingNewSkillName"
-                                class="skill-input"
-                                placeholder="Nom de l'habileté"
-                                @keyup.enter="addSkill"
-                              />
-                              <div class="skill-range-config">
-                                <label
-                                  >Min
-                                  <input
-                                    v-model.number="editingNewSkillMin"
-                                    type="number"
-                                    class="range-input"
-                                    min="0"
-                                /></label>
-                                <label
-                                  >Max
-                                  <input
-                                    v-model.number="editingNewSkillMax"
-                                    type="number"
-                                    class="range-input"
-                                    min="0"
-                                /></label>
-                                <label
-                                  >Pas
-                                  <input
-                                    v-model.number="editingNewSkillStep"
-                                    type="number"
-                                    class="range-input"
-                                    min="0.1"
-                                    step="0.1"
-                                /></label>
-                              </div>
-                              <div class="skill-add-actions">
-                                <button class="save-btn" @click="addSkill">
-                                  +
-                                </button>
-                                <button
-                                  class="cancel-btn"
-                                  @click="cancelSkillForm"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            </div>
-                          </template>
-                          <button
-                            v-else
-                            class="add-skill-btn"
-                            title="Ajouter une habileté"
-                            @click="showNewSkillForm = true"
-                          >
-                            <Plus :size="28" :stroke-width="3" />
-                          </button>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-
-                <div v-else key="list">
-                  <!-- ── Eval rows ───────────────────────────────── -->
-                  <div v-for="ev in evaluations" :key="ev.id">
-                    <div class="picker-item-row">
-                      <button
-                        class="picker-item"
-                        :class="{
-                          selected:
-                            checkedEvalIds.has(ev.id) &&
-                            checkedEvalIds.size === 1,
-                          'folder-row': true,
-                          expanded: expandedEvalId === ev.id,
-                        }"
-                        @click="handleEvalClick(ev)"
-                      >
-                        <span class="picker-header-row">
-                          <span class="folder-label-wrap">
-                            <ChevronRight
-                              v-if="expandedEvalId !== ev.id"
-                              :size="20"
-                              :stroke-width="3"
-                              class="folder-chevron"
-                            />
-                            <ChevronDown
-                              v-else
-                              :size="20"
-                              :stroke-width="3"
-                              class="folder-chevron"
-                            />
-                            <span>{{ ev.title }}</span>
-                          </span>
-                          <span
-                            v-if="expandedEvalId === ev.id"
-                            class="edit-class-btn"
-                            @click.stop="startEvalEdit(ev)"
-                          >
-                            <PenIcon :size="18" />
-                            <span>Éditer</span>
-                          </span>
-                          <span
                             class="row-checkbox"
-                            :class="{ checked: checkedEvalIds.has(ev.id) }"
+                            :class="{
+                              checked:
+                                checkedEvalIds.has(ev.id) ||
+                                evalHasSelectedSkills(ev.id),
+                            }"
                             @click.stop="handleEvalCheck(ev)"
                           >
                             <Check
-                              v-if="checkedEvalIds.has(ev.id)"
+                              v-if="
+                                checkedEvalIds.has(ev.id) ||
+                                evalHasSelectedSkills(ev.id)
+                              "
                               :size="24"
+                              :stroke-width="3"
                             />
-                          </span>
-                        </span>
-                        <!-- Expanded skills -->
-                        <div
-                          @click.stop
-                          v-if="expandedEvalId === ev.id"
-                          class="nested-items"
-                        >
-                          <div
-                            v-if="!getSkillsForEval(ev.id)?.length"
-                            class="nested-empty"
-                          >
-                            Aucune habileté
-                          </div>
-                          <div
-                            v-for="skill in getSkillsForEval(ev.id) || []"
-                            :key="skill.id"
-                            class="picker-item-row nested-row"
-                          >
-                            <button
-                              class="picker-item picker-item--nested"
-                              @click="skillDetailId = skill.id"
-                            >
-                              <img
-                                v-if="skill.icon"
-                                :src="`${BASE}icons/skills/${skill.icon}.svg`"
-                                class="picker-item-icon"
-                                alt=""
-                              />
-                              <span>{{ skill.name }}</span>
-                              <span class="skill-scale-badge">
-                                {{ skill.scale?.[0] || "?" }}→{{
-                                  skill.scale?.[skill.scale.length - 1] || "?"
-                                }}
-                              </span>
-                              <span
-                                class="row-checkbox"
-                                :class="{
-                                  checked:
-                                    checkedSkillIds.has(skill.id) ||
-                                    (checkedEvalIds.has(ev.id) &&
-                                      !excludedSkillIds.has(skill.id)),
-                                }"
-                                @click.stop="handleSkillCheck(ev, skill)"
-                              >
-                                <Check
-                                  v-if="
-                                    checkedSkillIds.has(skill.id) ||
-                                    (checkedEvalIds.has(ev.id) &&
-                                      !excludedSkillIds.has(skill.id))
-                                  "
-                                  :size="18"
-                                />
-                              </span>
-                            </button>
                           </div>
                         </div>
                       </button>
                     </div>
                   </div>
-                  <div v-if="evaluations.length === 0" class="picker-empty">
-                    Aucune évaluation
-                  </div>
-                  <div class="picker-item-row">
-                    <button
-                      class="picker-item picker-item--inline"
-                      @click="
-                        isAddingNewEval = true;
-                        editingEvalTitle = '';
-                      "
-                    >
-                      <Plus :size="28" :stroke-width="3" />
-                    </button>
-                  </div>
                 </div>
-              </Transition>
+
+                <!-- Column 2: Skills or Eval Detail -->
+                <div class="students-column">
+                  <Transition name="fade-slide" mode="out-in">
+                    <!-- Show eval editing form when editing -->
+                    <div
+                      v-if="editingEvalId !== null"
+                      :key="'eval-detail'"
+                      class="class-detail-container"
+                    >
+                      <div class="detail-section">
+                        <div class="class-name-row">
+                          <label class="detail-label">Titre</label>
+                          <input
+                            v-model="editingEvalTitle"
+                            class="detail-input"
+                            placeholder="Ex: Lecture"
+                            @blur="saveEvalTitleInline"
+                            @keyup.enter="saveEvalTitleInline"
+                          />
+                        </div>
+                      </div>
+
+                      <!-- Skills list for this evaluation -->
+                      <div class="detail-section">
+                        <label class="detail-label">
+                          Habiletés
+                          <span class="student-count">{{
+                            getSkillsForEval(editingEvalId).length
+                          }}</span>
+                        </label>
+                        <div class="students-list">
+                          <div
+                            v-for="skill in getSkillsForEval(editingEvalId)"
+                            :key="skill.id"
+                            class="student-row"
+                          >
+                            <span
+                              class="student-name"
+                              @click="skillDetailId = skill.id"
+                            >
+                              {{ skill.name }}
+                            </span>
+                            <span class="student-row-actions">
+                              <PenIcon
+                                :size="20"
+                                @click="skillDetailId = skill.id"
+                              />
+                              <X
+                                :size="20"
+                                @click="deleteSkillInline(skill.id)"
+                              />
+                            </span>
+                          </div>
+                          <div
+                            v-if="getSkillsForEval(editingEvalId).length === 0"
+                            class="students-empty"
+                          >
+                            Aucune habileté
+                          </div>
+                        </div>
+
+                        <!-- Add skill form -->
+                        <div class="add-student-row">
+                          <input
+                            v-model="editingNewSkillName"
+                            class="detail-input student-input"
+                            placeholder="Nom de l'habileté"
+                            @keyup.enter="addSkillToEval"
+                          />
+                          <button
+                            class="btn-icon"
+                            title="Ajouter"
+                            @click="addSkillToEval"
+                          >
+                            <Plus :size="24" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Otherwise show skills list -->
+                    <div v-else :key="'skills-list'">
+                      <div class="column-header">
+                        <h3>
+                          {{
+                            selectedEvalId
+                              ? `Habiletés`
+                              : "Sélectionnez une activité"
+                          }}
+                        </h3>
+                        <button
+                          v-if="selectedEvalId"
+                          class="picker-item picker-item--inline add-btn"
+                          @click="handleAddNewSkill(selectedEvalId)"
+                        >
+                          <Plus :size="20" :stroke-width="3" />
+                        </button>
+                      </div>
+                      <div v-if="selectedEvalId" class="student-list">
+                        <div
+                          v-for="skill in getSkillsForEval(selectedEvalId)"
+                          :key="skill.id"
+                          class="student-item-row"
+                        >
+                          <button
+                            class="picker-item student-item"
+                            :class="{ selected: skillDetailId === skill.id }"
+                            @click="skillDetailId = skill.id"
+                          >
+                            <span>{{ skill.name }}</span>
+                            <span
+                              class="row-checkbox"
+                              :class="{
+                                checked: checkedSkillIds.has(skill.id),
+                              }"
+                              @click.stop="toggleChecked(skill.id, 'skill')"
+                            >
+                              <Check
+                                v-if="checkedSkillIds.has(skill.id)"
+                                :size="24"
+                                :stroke-width="3"
+                              />
+                            </span>
+                          </button>
+                        </div>
+                        <div
+                          v-if="!getSkillsForEval(selectedEvalId)?.length"
+                          class="picker-empty"
+                        >
+                          Aucune habileté dans cette activité
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <!-- Column 3: Skill details (when editing) -->
+                <Transition name="fade-slide" mode="out-in">
+                  <div
+                    v-if="skillDetailId !== null && skillDetailData"
+                    :key="skillDetailId"
+                    class="student-detail-column"
+                  >
+                    <!-- Navigation bar -->
+                    <div class="detail-nav-bar detail-nav-bar--inline">
+                      <button class="back-btn" @click="skillDetailId = null">
+                        <ChevronLeft :size="36" :stroke-width="3" />
+                      </button>
+                      <div class="detail-actions">
+                        <button
+                          class="header-trash-btn"
+                          title="Supprimer l'habileté"
+                          @click="deleteSkillFromDetail"
+                        >
+                          <Trash2 :size="24" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="student-detail-layout">
+                      <!-- Icon picker -->
+                      <div class="student-detail-photo">
+                        <div
+                          class="student-photo-circle"
+                          :class="{ 'picker-open': showSkillIconPicker }"
+                          @click="showSkillIconPicker = !showSkillIconPicker"
+                          title="Choisir une icône"
+                        >
+                          <img
+                            v-if="
+                              skillDetailEditing?.icon || skillDetailData?.icon
+                            "
+                            :src="`${BASE}icons/skills/${skillDetailEditing?.icon || skillDetailData?.icon}.svg`"
+                            class="skill-icon-img"
+                            alt=""
+                          />
+                          <span v-else class="student-photo-initials">?</span>
+                        </div>
+                      </div>
+
+                      <!-- Right column: fields -->
+                      <div class="student-detail-fields">
+                        <div class="detail-section">
+                          <label class="detail-label">Nom</label>
+                          <input
+                            v-model="skillDetailEditing.name"
+                            class="detail-input"
+                            placeholder="Nom de l'habileté"
+                            @blur="saveSkillDetail"
+                          />
+                        </div>
+                        <div class="detail-section">
+                          <label class="detail-label">Échelle</label>
+                          <div class="skill-range-config">
+                            <label>
+                              Min
+                              <input
+                                v-model.number="editingNewSkillMin"
+                                type="number"
+                                class="range-input"
+                                min="0"
+                                @blur="updateScaleFromInputs"
+                              />
+                            </label>
+                            <label>
+                              Max
+                              <input
+                                v-model.number="editingNewSkillMax"
+                                type="number"
+                                class="range-input"
+                                min="0"
+                                @blur="updateScaleFromInputs"
+                              />
+                            </label>
+                            <label>
+                              Pas
+                              <input
+                                v-model.number="editingNewSkillStep"
+                                type="number"
+                                class="range-input"
+                                min="0.1"
+                                step="0.1"
+                                @blur="updateScaleFromInputs"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Icon picker dropdown -->
+                    <div v-if="showSkillIconPicker" class="icon-picker">
+                      <div class="icon-picker-search">
+                        <input
+                          v-model="iconPickerSearch"
+                          class="icon-picker-input"
+                          placeholder="Chercher une icône…"
+                          autofocus
+                        />
+                      </div>
+                      <div class="icon-picker-grid">
+                        <button
+                          v-for="iconName in filteredSkillIcons"
+                          :key="iconName"
+                          class="icon-picker-option"
+                          :class="{
+                            selected: skillDetailEditing.icon === iconName,
+                          }"
+                          @click="selectSkillIcon(iconName)"
+                        >
+                          <img
+                            :src="`${BASE}icons/skills/${iconName}.svg`"
+                            class="icon-picker-img"
+                            alt=""
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
             </div>
           </div>
 
@@ -3273,17 +3419,27 @@ defineExpose({
                 Tous
               </label>
               <label
-                class="filter-option filter-option--disabled"
-                title="À venir"
+                class="filter-option"
+                :class="{ active: genderFilter === 'male' }"
               >
-                <input type="radio" disabled />
+                <input
+                  type="radio"
+                  name="gender"
+                  value="male"
+                  v-model="genderFilter"
+                />
                 M
               </label>
               <label
-                class="filter-option filter-option--disabled"
-                title="À venir"
+                class="filter-option"
+                :class="{ active: genderFilter === 'female' }"
               >
-                <input type="radio" disabled />
+                <input
+                  type="radio"
+                  name="gender"
+                  value="female"
+                  v-model="genderFilter"
+                />
                 F
               </label>
             </div>
@@ -3365,6 +3521,8 @@ textarea {
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
+  max-width: 1366px;
+  margin: auto;
 }
 
 /* ── Top bar & bottom bar ──────────────────────────── */
@@ -3381,8 +3539,51 @@ textarea {
 .top-bar {
   margin: 6px 20px 0px 20px;
   position: relative;
+  display: flex;
+  align-items: center;
   /* height: 60px; */
 }
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+}
+
+.user-email {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 .students-row {
   padding: 15px;
   gap: 10px;
@@ -3817,7 +4018,7 @@ textarea {
   /* border: 2px dashed rgba(255, 200, 80, 0.2); */
   border-radius: 16px;
   background: rgba(20, 10, 2, 0.35);
-  overflow: hidden;
+  /* overflow: hidden; */
   transition:
     background 0.18s,
     border-color 0.18s,
@@ -3999,18 +4200,22 @@ textarea {
 
 /* ── Zone sub-segments (shown during drag) ─────────── */
 .zone-segments {
-  display: flex;
+  display: grid;
   flex: 1;
   width: 100%;
-  gap: 2px;
+  max-width: 100%;
+  gap: 4px;
   /* padding: 12px; */
   padding-top: 0;
   /* border-radius: 8px; */
-  overflow: hidden;
+  overflow: visible;
+  /* Allow wrapping for skills with many segments */
+  grid-auto-flow: row;
 }
 
 .zone-segment {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4019,15 +4224,19 @@ textarea {
   /* border-radius: 8px; */
   background: rgba(30, 16, 3, 0.4);
   color: rgba(224, 72, 1, 0.6);
-  font-size: clamp(2.5rem, 8vw, 5rem);
+  font-size: clamp(0.8rem, min(4vw, 3cqw), 5.5rem);
   font-family: "Coiny", sans-serif;
-  opacity: 0.6;
+  /* opacity: 0.6; */
   cursor: pointer;
   transition:
     background 0.12s,
     border-color 0.12s,
     color 0.12s,
     transform 0.1s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px;
 }
 
 .segment-hover {
@@ -4098,6 +4307,7 @@ textarea {
   /* display: flex; */
   flex-wrap: wrap;
   align-items: center;
+  padding: 1rem;
   /* background: rgba(20, 10, 2, 0.45); */
   /* padding-bottom: 100px; */
 }
@@ -4929,13 +5139,13 @@ textarea {
 .picker-panel--full > .class-modal-body,
 .picker-panel--full > .report-body {
   width: 100%;
-  max-width: 800px;
+  max-width: 100%;
   flex: 1;
   overflow-y: auto;
 }
 .picker-panel--full > .picker-panel-header {
   width: 100%;
-  max-width: 800px;
+  max-width: 100%;
   flex-shrink: 0;
 }
 
@@ -5177,6 +5387,7 @@ textarea {
 }
 
 .student-detail-layout {
+  flex-direction: column;
   display: flex;
   gap: 1.5rem;
   align-items: flex-start;
@@ -5206,6 +5417,7 @@ textarea {
 
 .student-detail-fields {
   flex: 1;
+  width: 100%;
   min-width: 0;
 }
 .gender-selector {
@@ -5532,7 +5744,7 @@ textarea {
 /* ── Detail navigation bar ───────────────────────── */
 .detail-nav-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   /* gap: 12px; */
   margin-bottom: 1rem;
@@ -5589,20 +5801,92 @@ textarea {
   height: calc(100% - 24px);
 }
 
+/* ── Three-column layout for class modal ───────────── */
+.class-three-column-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  height: calc(100% - 24px);
+  width: 100%;
+}
+
 .class-column,
+.students-column,
+.student-detail-column {
+  /* background: rgba(4, 8, 26, 0.1); */
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* border-right: 2px solid rgba(255, 255, 255, 0.1); */
+  position: relative;
+}
+
+/* Remove justify-content that might interfere with scrolling */
 .students-column {
+  animation: slideInFromLeft 0.3s ease-out;
+  justify-content: flex-start;
+}
+
+.student-detail-column {
+  border-right: none;
+}
+
+/* ClassDetail container in middle column */
+.class-detail-container {
+  flex: 1;
+  overflow-y: auto;
+  /* padding: 0.5rem; */
+}
+
+/* Student list needs explicit flex and overflow */
+.students-column .student-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+}
+
+/* Wrapper for student list content */
+.students-column-content {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+/* Slide-in animation for columns */
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Vue Transition for fade only */
+.fade-slide-enter-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.fade-slide-leave-active {
+  display: none;
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+}
+
 .column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  /* padding: 1rem; */
+  /* border-bottom: 2px solid rgba(255, 255, 255, 0.1); */
   flex-shrink: 0;
 }
 
@@ -5619,9 +5903,34 @@ textarea {
 
 .class-list,
 .student-list {
+  overflow-x: hidden;
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem;
+  /* background: rgba(255, 255, 255, 1); */
+  margin-top: 1rem;
+  /* padding: 0.5rem; */
+
+  /* Custom scrollbar for Chrome, Safari and Opera */
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
 
 .class-item,
@@ -5630,13 +5939,27 @@ textarea {
   justify-content: space-between;
   margin-bottom: 0.5rem;
   gap: 8px;
+  transition: opacity 0.2s ease-out;
+  border: 1px solid transparent;
 }
 
-.class-item.selected {
-  /* background: rgba(255, 255, 255, 0.2); */
-  border-color: var(--text-light);
-  margin-left: 0.5rem;
+/* Dim unselected items when a selection is active */
+.class-list:has(.class-item.selected) .class-item:not(.selected),
+.student-list:has(.student-item.selected) .student-item:not(.selected) {
+  opacity: 0.5;
 }
+
+.class-item.selected,
+.student-item.selected {
+  border-color: rgba(255, 255, 255, 1);
+  opacity: 1;
+}
+
+.class-item:hover,
+.student-item:hover {
+  opacity: 1;
+}
+
 .class-item-buttons {
   display: flex;
   gap: 24px;

@@ -1,11 +1,14 @@
 <script setup>
+import AuthGuard from "./components/AuthGuard.vue";
 import LiveSession from "./components/LiveSession.vue";
 </script>
 
 <template>
-  <div id="app-shell">
-    <LiveSession />
-  </div>
+  <AuthGuard>
+    <div id="app-shell">
+      <LiveSession />
+    </div>
+  </AuthGuard>
 </template>
 
 <style>

@@ -368,16 +368,10 @@ const parsedEntries = computed(() => {
             v-model="className"
             class="detail-input"
             placeholder="Ex: 3A"
+            @blur="saveClass"
             @keyup.enter="saveClass"
           />
         </div>
-        <button
-          v-if="!isNewClass && hasChanges"
-          class="btn btn-save-class"
-          @click="saveClass"
-        >
-          <Check :size="16" /> Enregistrer
-        </button>
       </div>
 
       <!-- Students list -->
@@ -773,6 +767,8 @@ const parsedEntries = computed(() => {
 /* ── Students list ──────────────────────────────────── */
 .students-list {
   margin-bottom: 0.75rem;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
 }
 
 .student-row {
