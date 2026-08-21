@@ -469,6 +469,12 @@ function selectEvalInModal(evalId) {
   skillDetailId.value = null;
 }
 
+function cancelEvalEdit() {
+  editingEvalId.value = null;
+  editingEvalTitle.value = "";
+  isAddingNewEval.value = false;
+}
+
 async function handleAddNewEval() {
   // Create a new evaluation with default name
   const { data, error } = await supabase

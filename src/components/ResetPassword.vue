@@ -16,11 +16,11 @@ onMounted(async () => {
   console.log("ResetPassword mounted");
   console.log("URL:", window.location.href);
   console.log("Hash:", window.location.hash);
-  
+
   // Listen for auth state changes (Supabase processes the hash asynchronously)
   authListener = supabase.auth.onAuthStateChange((event, session) => {
     console.log("Auth state changed:", event);
-    
+
     if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
       if (session) {
         console.log("Recovery session established via auth change");
@@ -28,7 +28,7 @@ onMounted(async () => {
       }
     }
   });
-  
+
   try {
     // Supabase automatically processes the hash token on page load
     // Just check if we have a valid session
@@ -58,7 +58,8 @@ onMounted(async () => {
           tokenValid.value = true;
           console.log("Session established after retry");
         } else {
-          error.value = "No recovery token found. Please request a new password reset link.";
+          error.value =
+            "No recovery token found. Please request a new password reset link.";
         }
       }, 1000);
     }
