@@ -80,13 +80,26 @@ export async function signInWithProvider(provider) {
     ? baseUrl
     : `${baseUrl}/tu-valu`;
 
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo: redirectUrl,
-    },
-  });
-  return { data, error };
+  console.log(`Signing in with ${provider}`);
+  console.log("Redirect URL:", redirectUrl);
+
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      console.error(`OAuth error for ${provider}:`, error.message);
+    }
+
+    return { data, error };
+  } catch (err) {
+    console.error(`OAuth exception for ${provider}:`, err);
+    return { data: null, error: err };
+  }
 }
 
 export async function signOut() {
