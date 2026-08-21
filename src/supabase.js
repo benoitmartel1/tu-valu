@@ -142,3 +142,19 @@ export async function resetPassword(email) {
 
   return { data, error };
 }
+// Diagnostic function to check OAuth configuration
+export async function checkOAuthConfig() {
+  console.log("=== OAuth Configuration Check ===");
+  console.log("Supabase URL:", supabase.supabaseUrl);
+  console.log("Current origin:", window.location.origin);
+  
+  const providers = ['github', 'google'];
+  for (const provider of providers) {
+    console.log(`\nChecking ${provider.toUpperCase()} configuration:`);
+    console.log(`- Provider should be enabled in Supabase dashboard`);
+    console.log(`- Callback URL: https://edmzyjbiamagocfjwrlw.supabase.co/auth/v1/callback`);
+    console.log(`- Redirect after auth: ${window.location.origin}${window.location.pathname.includes('/tu-valu') ? '' : '/tu-valu'}`);
+  }
+  
+  console.log("\n=== End Check ===");
+}
