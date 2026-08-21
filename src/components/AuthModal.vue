@@ -187,7 +187,7 @@ function switchTab(tab) {
 </script>
 
 <template>
-  <div v-if="showAuthModal" class="auth-modal-overlay" @click.self="closeModal">
+  <div v-if="showAuthModal" class="auth-modal-overlay">
     <div class="auth-modal">
       <button class="close-btn" @click="closeModal">
         <X :size="20" />
