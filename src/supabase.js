@@ -114,18 +114,18 @@ export async function resetPassword(email) {
   const redirectUrl = baseUrl.includes("/tu-valu")
     ? baseUrl
     : `${baseUrl}/tu-valu`;
-  
+
   console.log("Password reset redirect URL:", `${redirectUrl}/reset-password`);
 
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${redirectUrl}/reset-password`,
   });
-  
+
   if (error) {
     console.error("Password reset error:", error.message);
   } else {
     console.log("Password reset email sent successfully");
   }
-  
+
   return { data, error };
 }

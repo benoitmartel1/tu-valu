@@ -22,11 +22,13 @@ The application is deployed in a subdirectory (`/tu-valu`) but the authenticatio
 
 1. Go to your Supabase project dashboard
 2. Navigate to **Authentication > URL Configuration**
-3. Under **Site URL**, set: `https://dev.benoitmartel.com/tu-valu`
-4. Under **Redirect URLs**, add:
-   - `https://dev.benoitmartel.com/tu-valu/**` (your production domain with subdirectory)
+3. Under **Site URL**, keep your shared domain (if multiple apps use this Supabase project): `https://dev.benoitmartel.com/`
+4. Under **Redirect URLs**, add the specific paths for each app:
+   - `https://dev.benoitmartel.com/tu-valu/**` (your tu-valu app)
    - `http://localhost:5173/**` (for local development)
-   - Any other subdomains you use
+   - Add similar patterns for other apps using the same Supabase project
+
+**Important**: Even though the Site URL is shared across multiple apps, you must explicitly add each app's subdirectory path to the Redirect URLs list. This allows Supabase to accept redirect URLs to those specific paths.
 
 #### Step 2: Verify Email Template
 
