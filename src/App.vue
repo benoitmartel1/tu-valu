@@ -10,7 +10,7 @@ onMounted(() => {
   // Check if we're on the reset password page
   const hash = window.location.hash;
   const pathname = window.location.pathname;
-  
+
   if (hash.includes("access_token") && hash.includes("type=recovery")) {
     showResetPassword.value = true;
   } else if (pathname.includes("/reset-password")) {
@@ -22,7 +22,7 @@ onMounted(() => {
 <template>
   <!-- Show reset password page if URL contains recovery token -->
   <ResetPassword v-if="showResetPassword" />
-  
+
   <!-- Otherwise show normal app with auth guard -->
   <AuthGuard v-else>
     <div id="app-shell">

@@ -12,9 +12,10 @@ const tokenValid = ref(false);
 onMounted(async () => {
   // Check if we have a recovery token in the URL hash
   const hash = window.location.hash;
-  
+
   if (!hash || !hash.includes("access_token")) {
-    error.value = "No recovery token found. Please request a new password reset link.";
+    error.value =
+      "No recovery token found. Please request a new password reset link.";
     return;
   }
 
@@ -22,7 +23,7 @@ onMounted(async () => {
     // Supabase will automatically handle the token from the hash
     // and set the session when the page loads
     const { data, error: sessionError } = await supabase.auth.getSession();
-    
+
     if (sessionError) {
       throw sessionError;
     }
@@ -31,7 +32,8 @@ onMounted(async () => {
       tokenValid.value = true;
       console.log("Recovery session established");
     } else {
-      error.value = "Invalid or expired recovery link. Please request a new password reset.";
+      error.value =
+        "Invalid or expired recovery link. Please request a new password reset.";
     }
   } catch (err) {
     console.error("Session error:", err);
@@ -64,7 +66,7 @@ async function handleResetPassword() {
     }
 
     message.value = "Password updated successfully! Redirecting to login...";
-    
+
     // Clear the form
     newPassword.value = "";
     confirmPassword.value = "";
@@ -98,7 +100,11 @@ async function handleResetPassword() {
       </div>
 
       <!-- Reset form -->
-      <form v-if="tokenValid" @submit.prevent="handleResetPassword" class="reset-form">
+      <form
+        v-if="tokenValid"
+        @submit.prevent="handleResetPassword"
+        class="reset-form"
+      >
         <div class="form-group">
           <label for="new-password">
             <Lock :size="16" />
@@ -210,7 +216,9 @@ input:focus {
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .submit-btn:hover:not(:disabled) {
