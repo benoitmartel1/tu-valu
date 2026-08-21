@@ -38,23 +38,52 @@ export async function signIn(email, password) {
 }
 
 export async function signInWithMagicLink(email) {
-  const { data, error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: true,
-      data: {
-        app_name: "tu-valu",
+  try {
+    console.log("Sending magic link to:", email);
+
+    // Build the correct redirect URL including the /tu-valu subdirectory
+    const baseUrl = window.location.origin;
+    const redirectUrl = baseUrl.includes("/tu-valu")
+      ? baseUrl
+      : `${baseUrl}/tu-valu`;
+
+    console.log("Redirect URL:", redirectUrl);
+
+    const { data, error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: redirectUrl,
+        data: {
+          app_name: "tu-valu",
+        },
       },
-    },
-  });
-  return { data, error };
+    });
+
+    if (error) {
+      console.error("Magic link error:", error.message, error.status);
+    } else {
+      console.log("Magic link sent successfully");
+    }
+
+    return { data, error };
+  } catch (err) {
+    console.error("Magic link exception:", err);
+    return { data: null, error: err };
+  }
 }
 
 export async function signInWithProvider(provider) {
+  // Build the correct redirect URL including the /tu-valu subdirectory
+  const baseUrl = window.location.origin;
+  const redirectUrl = baseUrl.includes("/tu-valu")
+    ? baseUrl
+    : `${baseUrl}/tu-valu`;
+
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: window.location.origin,
+      redirectTo: redirectUrl,
     },
   });
   return { data, error };
@@ -80,8 +109,14 @@ export function onAuthStateChange(callback) {
 }
 
 export async function resetPassword(email) {
+  // Build the correct redirect URL including the /tu-valu subdirectory
+  const baseUrl = window.location.origin;
+  const redirectUrl = baseUrl.includes("/tu-valu")
+    ? baseUrl
+    : `${baseUrl}/tu-valu`;
+
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
+    redirectTo: `${redirectUrl}/reset-password`,
   });
   return { data, error };
 }

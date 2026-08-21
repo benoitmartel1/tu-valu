@@ -64,6 +64,8 @@ export async function initAuth() {
   // Listen for auth state changes
   onAuthStateChange((event, session) => {
     console.log("Auth state changed:", event);
+    console.log("Session:", session ? "present" : "null");
+    console.log("User:", session?.user?.email || "none");
 
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       user.value = session?.user || null;
@@ -72,11 +74,17 @@ export async function initAuth() {
       if (user.value && user.value.user_metadata?.app_name !== "tu-valu") {
         console.warn("User from different app signed in");
       }
+
+      console.log("User authenticated successfully");
     } else if (event === "SIGNED_OUT") {
       user.value = null;
       showAuthModal.value = true;
+      console.log("User signed out");
     } else if (event === "USER_UPDATED") {
       user.value = session?.user || null;
+      console.log("User updated");
+    } else {
+      console.log("Other auth event:", event);
     }
 
     loading.value = false;
