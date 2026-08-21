@@ -1,0 +1,11 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Handle SPA routing - redirect all requests to index.html
+# except for actual files and directories
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# All other requests go to index.html
+RewriteRule ^ /tu-valu/index.html [L]
