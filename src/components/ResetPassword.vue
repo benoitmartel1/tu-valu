@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabase";
 import { Lock } from "@lucide/vue";
+
 const newPassword = ref("");
 const confirmPassword = ref("");
 const submitting = ref(false);
@@ -9,35 +10,68 @@ const message = ref("");
 const error = ref("");
 const tokenValid = ref(false);
 
+let authListener = null;
+
 onMounted(async () => {
-  // Check if we have a recovery token in the URL hash
-  const hash = window.location.hash;
-
-  if (!hash || !hash.includes("access_token")) {
-    error.value =
-      "No recovery token found. Please request a new password reset link.";
-    return;
-  }
-
+  console.log("ResetPassword mounted");
+  console.log("URL:", window.location.href);
+  console.log("Hash:", window.location.hash);
+  
+  // Listen for auth state changes (Supabase processes the hash asynchronously)
+  authListener = supabase.auth.onAuthStateChange((event, session) => {
+    console.log("Auth state changed:", event);
+    
+    if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+      if (session) {
+        console.log("Recovery session established via auth change");
+        tokenValid.value = true;
+      }
+    }
+  });
+  
   try {
-    // Supabase will automatically handle the token from the hash
-    // and set the session when the page loads
+    // Supabase automatically processes the hash token on page load
+    // Just check if we have a valid session
     const { data, error: sessionError } = await supabase.auth.getSession();
 
     if (sessionError) {
+      console.error("Session error:", sessionError);
       throw sessionError;
     }
 
     if (data.session) {
-      tokenValid.value = true;
-      console.log("Recovery session established");
+      console.log("Session found:", data.session.user?.email);
+      // Check if this is a recovery session
+      const user = data.session.user;
+      if (user) {
+        tokenValid.value = true;
+        console.log("Recovery session established");
+      } else {
+        error.value = "Invalid session. Please request a new password reset.";
+      }
     } else {
-      error.value =
-        "Invalid or expired recovery link. Please request a new password reset.";
+      console.log("No session found, waiting for auth processing...");
+      // Wait a bit in case Supabase is still processing the hash
+      setTimeout(async () => {
+        const { data: retryData } = await supabase.auth.getSession();
+        if (retryData?.session) {
+          tokenValid.value = true;
+          console.log("Session established after retry");
+        } else {
+          error.value = "No recovery token found. Please request a new password reset link.";
+        }
+      }, 1000);
     }
   } catch (err) {
     console.error("Session error:", err);
     error.value = "Failed to validate recovery link. Please try again.";
+  }
+});
+
+onUnmounted(() => {
+  // Clean up the auth listener
+  if (authListener) {
+    authListener.data.subscription.unsubscribe();
   }
 });
 
