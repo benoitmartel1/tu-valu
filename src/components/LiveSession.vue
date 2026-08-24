@@ -21,7 +21,6 @@ import {
   LogOut,
   createLucideIcon,
   PenIcon,
-  LogOut,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
