@@ -3092,7 +3092,6 @@ defineExpose({
                             <RangeInput
                               v-model:value="editingNewSkillStep"
                               :min="0.1"
-                              :step="0.1"
                               label="Pas"
                               size="small"
                               @change="
