@@ -355,7 +355,7 @@ function cancel() {
                 draggable="true"
                 @dragstart="handleDragStart($event, student, teamIndex)"
               >
-                {{ student.firstname }} {{ student.lastname }}
+                {{ student.firstname }}
               </div>
             </div>
           </div>
@@ -625,21 +625,23 @@ function cancel() {
 
 .team-students {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 0.4rem;
   min-height: 60px;
+  align-content: flex-start;
 }
 
 .student-pill {
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.65rem;
   background: #a8dadc42;
   border-radius: 999px;
   color: var(--text-light);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: grab;
   transition: background 0.15s;
   font-family: inherit;
+  white-space: nowrap;
 }
 
 .student-pill:hover {
