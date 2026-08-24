@@ -17,6 +17,7 @@ const teamMode = ref("count"); // 'count' (number of teams) or 'size' (students 
 const teamCount = ref(4);
 const teamSize = ref(5);
 const separationMethod = ref("random"); // 'random', 'strength', 'gender'
+const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' (blend genders)
 
 // Generated teams preview
 const generatedTeams = ref([]);
@@ -79,13 +80,19 @@ async function generateTeams() {
     const others = studentsWithInfo.filter(
       (s) => s.gender !== "male" && s.gender !== "female",
     );
-    // Interleave genders
-    studentsWithInfo = [];
-    const maxLen = Math.max(males.length, females.length, others.length);
-    for (let i = 0; i < maxLen; i++) {
-      if (i < males.length) studentsWithInfo.push(males[i]);
-      if (i < females.length) studentsWithInfo.push(females[i]);
-      if (i < others.length) studentsWithInfo.push(others[i]);
+
+    if (genderGrouping.value === "separate") {
+      // Group genders together: all males, then all females, then others
+      studentsWithInfo = [...males, ...females, ...others];
+    } else {
+      // Mix genders: interleave them as much as possible
+      studentsWithInfo = [];
+      const maxLen = Math.max(males.length, females.length, others.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < males.length) studentsWithInfo.push(males[i]);
+        if (i < females.length) studentsWithInfo.push(females[i]);
+        if (i < others.length) studentsWithInfo.push(others[i]);
+      }
     }
   } else {
     // Random shuffle
@@ -320,6 +327,31 @@ function cancel() {
               Par genre
             </label>
           </div>
+
+          <!-- Gender grouping sub-options -->
+          <div v-if="separationMethod === 'gender'" class="sub-options">
+            <label class="sub-option-label">Regroupement</label>
+            <div class="radio-group radio-group--small">
+              <label class="radio-option radio-option--small">
+                <input
+                  type="radio"
+                  v-model="genderGrouping"
+                  value="separate"
+                  @change="generateTeams"
+                />
+                Séparer les genres
+              </label>
+              <label class="radio-option radio-option--small">
+                <input
+                  type="radio"
+                  v-model="genderGrouping"
+                  value="mix"
+                  @change="generateTeams"
+                />
+                Mélanger les genres
+              </label>
+            </div>
+          </div>
         </div>
 
         <button class="generate-btn" @click="generateTeams">
@@ -445,6 +477,31 @@ function cancel() {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* Sub-options for gender grouping */
+.sub-options {
+  margin-top: 0.75rem;
+  padding-left: 1rem;
+  border-left: 2px solid rgba(255, 200, 80, 0.2);
+}
+
+.sub-option-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-light);
+  opacity: 0.6;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.radio-group--small {
+  gap: 0.4rem;
+}
+
+.radio-option--small {
+  padding: 6px 10px;
+  font-size: 0.9rem;
 }
 
 .radio-option {
