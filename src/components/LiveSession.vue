@@ -1368,6 +1368,8 @@ const selectionSummary = computed(() => {
   if (extraStudentCount > 0) {
     parts.push(`${extraStudentCount} élève${extraStudentCount > 1 ? "s" : ""}`);
   }
+
+
   return parts.join(" · ");
 });
 
@@ -3482,14 +3484,12 @@ defineExpose({
           <div
             v-else-if="teamModalOpen"
             key="teams"
-            class="picker-panel class-modal picker-panel--full class-modal--bg"
+            class="picker-panel class-modal picker-panel--full team-modal-bg"
           >
-            <div class="picker-panel-header">
-              <span>Créer des équipes</span>
-              <button class="close-btn" @click="teamModalOpen = false">
-                <ChevronUp :size="36" :stroke-width="3" />
-              </button>
-            </div>
+            <button class="close-modal-btn" @click="teamModalOpen = false">
+              <ChevronUp :size="36" :stroke-width="3" />
+            </button>
+
             <div class="class-modal-body">
               <TeamSetup
                 :students="currentStudents"
@@ -3874,11 +3874,11 @@ textarea {
   font-weight: 700;
 }
 
-/* ── Teams button (dark blue) ─────────────────────── */
+/* ── Teams button (gray) ─────────────────────── */
 .fab--teams.fab--filled,
 .fab--teams.fab--modal-open {
-  background: var(--court-blue);
-  border-color: var(--court-blue);
+  background: var(--team-gray);
+  border-color: var(--team-gray);
   color: var(--text-light);
   font-weight: 700;
 }
@@ -4022,6 +4022,11 @@ textarea {
 .class-modal--bg {
   /* --text-light: #1a0e04; */
   background: #457b9d;
+}
+
+/* ── Teams modal background (gray) ───────────────── */
+.team-modal-bg {
+  background: var(--team-gray);
 }
 
 .eval-bg .picker-item.selected {
