@@ -19,10 +19,25 @@ const teamSize = ref(5);
 const separationMethod = ref("random"); // 'random', 'strength', 'gender'
 const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' (blend genders)
 
+// Team colors palette
+const teamColors = [
+  "#FF6B6B", // Red
+  "#4ECDC4", // Teal
+  "#FFE66D", // Yellow
+  "#95E1D3", // Mint
+  "#F38181", // Coral
+  "#AA96DA", // Purple
+  "#FCBAD3", // Pink
+  "#A8E6CF", // Light Green
+  "#FFD93D", // Gold
+  "#6BCB77", // Green
+];
+
 // Generated teams preview
 const generatedTeams = ref([]);
 const saving = ref(false);
 const error = ref(null);
+const showColorPicker = ref(null); // Track which team's color picker is open
 
 // Generate teams automatically on mount
 onMounted(() => {
@@ -300,6 +315,7 @@ async function applyTeams() {
         .insert({
           name: team.name,
           user_id: user.id,
+          color: team.color || null,
         })
         .select()
         .single();
@@ -338,6 +354,24 @@ async function applyTeams() {
 
 function cancel() {
   emit("cancel");
+}
+
+// Color picker functions
+function toggleColorPicker(teamIndex) {
+  showColorPicker.value =
+    showColorPicker.value === teamIndex ? null : teamIndex;
+}
+
+function selectTeamColor(teamIndex, color) {
+  generatedTeams.value[teamIndex].color = color;
+  showColorPicker.value = null;
+}
+
+function getTeamColor(teamIndex) {
+  return (
+    generatedTeams.value[teamIndex]?.color ||
+    teamColors[teamIndex % teamColors.length]
+  );
 }
 </script>
 
@@ -501,6 +535,26 @@ function cancel() {
                 class="team-name-input"
                 placeholder="Nom de l'équipe"
               />
+              <!-- Color picker circle -->
+              <div
+                class="color-picker-circle"
+                :style="{ backgroundColor: getTeamColor(teamIndex) }"
+                @click="toggleColorPicker(teamIndex)"
+                title="Changer la couleur"
+              ></div>
+              <!-- Color picker dropdown -->
+              <div
+                v-if="showColorPicker === teamIndex"
+                class="color-picker-dropdown"
+              >
+                <div
+                  v-for="(color, colorIndex) in teamColors"
+                  :key="colorIndex"
+                  class="color-option"
+                  :style="{ backgroundColor: color }"
+                  @click="selectTeamColor(teamIndex, color)"
+                ></div>
+              </div>
               <span class="team-count">{{ team.students.length }}</span>
             </div>
 
@@ -545,7 +599,8 @@ function cancel() {
   flex-direction: column;
   gap: 1.25rem;
   padding: 1rem;
-  background: rgba(20, 10, 2, 0.4);
+  border: 2px solid rgba(167, 165, 164, 0.4);
+
   border-radius: 16px;
   overflow-y: auto;
 }
@@ -760,6 +815,55 @@ function cancel() {
   align-items: center;
   margin-bottom: 0.75rem;
   gap: 0.5rem;
+  position: relative;
+}
+
+.color-picker-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  transition:
+    transform 0.2s,
+    border-color 0.2s;
+  flex-shrink: 0;
+}
+
+.color-picker-circle:hover {
+  transform: scale(1.1);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.color-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 60px;
+  background: rgba(20, 10, 2, 0.95);
+  border: 1.5px solid rgba(255, 200, 80, 0.3);
+  border-radius: 12px;
+  padding: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.color-option {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition:
+    transform 0.2s,
+    border-color 0.2s;
+}
+
+.color-option:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.8);
 }
 
 .team-name-input {

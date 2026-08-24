@@ -87,8 +87,11 @@ const teamColors = [
 
 function getTeamColor(teamId) {
   if (!teamId) return null;
+  const team = teams.value.find((t) => t.id === teamId);
+  if (!team) return null;
+  // Use team's saved color, or fallback to palette based on index
+  if (team.color) return team.color;
   const teamIndex = teams.value.findIndex((t) => t.id === teamId);
-  if (teamIndex === -1) return null;
   return teamColors[teamIndex % teamColors.length];
 }
 
@@ -1151,7 +1154,7 @@ function onDragEnd() {
           eventId: data.id,
         });
         // Refresh report data if the report modal is open
-        if (activeModal.value === 'report') {
+        if (activeModal.value === "report") {
           loadReportData();
         }
       })
@@ -1898,8 +1901,16 @@ const actionHistory = ref([]); // { studentId, skillId, level, eventId }[]
 const liveAnimating = ref(false);
 
 watch(
-  () => [isClassModalOpen.value, isEvalModalOpen.value, isReportModalOpen.value, isTeamModalOpen.value],
-  ([curClass, curEval, curReport, curTeams], [prevClass, prevEval, prevReport, prevTeams]) => {
+  () => [
+    isClassModalOpen.value,
+    isEvalModalOpen.value,
+    isReportModalOpen.value,
+    isTeamModalOpen.value,
+  ],
+  (
+    [curClass, curEval, curReport, curTeams],
+    [prevClass, prevEval, prevReport, prevTeams],
+  ) => {
     // Re-trigger enter animation when any modal closes
     if (
       (prevClass || prevEval || prevReport || prevTeams) &&
@@ -2518,7 +2529,10 @@ defineExpose({
       <!-- MODAL OVERLAY (top layer) -->
       <div
         v-show="
-          isClassModalOpen || isEvalModalOpen || isReportModalOpen || isTeamModalOpen
+          isClassModalOpen ||
+          isEvalModalOpen ||
+          isReportModalOpen ||
+          isTeamModalOpen
         "
         class="picker-screen picker-screen--modal"
       >
@@ -3634,9 +3648,10 @@ defineExpose({
             <div
               class="student-bubble"
               :style="{
-                background: teamsActive
-                  ? getStudentTeamColor(student.id) || '#457b9d'
-                  : '#457b9d',
+                border: teamsActive
+                  ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
+                  : 'none',
+                background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
               }"
             >
               {{ student.firstname }}
@@ -3652,9 +3667,10 @@ defineExpose({
             <div
               class="student-bubble-preview"
               :style="{
-                background: teamsActive
-                  ? getStudentTeamColor(student.id) || '#457b9d'
-                  : '#457b9d',
+                border: teamsActive
+                  ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
+                  : 'none',
+                background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
               }"
             >
               {{ student.firstname }}

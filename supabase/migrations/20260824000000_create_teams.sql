@@ -2,6 +2,7 @@
 CREATE TABLE tu_teams (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
+  color TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE
 );
