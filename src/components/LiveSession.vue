@@ -39,6 +39,7 @@ const Sneaker = createLucideIcon("Sneaker", [
   ["path", { d: "M2 11c0 1.7 1.3 3 3 3h7" }],
 ]);
 import ClassDetail from "./ClassDetail.vue";
+import TeamSetup from "./TeamSetup.vue";
 
 // ── Setup state ───────────────────────────────────────
 const classes = ref([]);
@@ -51,6 +52,39 @@ const classModalOpen = ref(false);
 const classModalTab = ref("select"); // 'select' | 'edit'
 const evalModalOpen = ref(false);
 const evalModalTab = ref("select"); // 'select' | 'edit'
+const teamModalOpen = ref(false);
+
+// ── Teams state ───────────────────────────────────────
+const teams = ref([]); // All teams from database
+const activeTeamId = ref(null); // Currently selected team for filtering (null = all teams)
+const teamsActive = ref(false); // Whether team concept is currently active in session
+const studentTeamMap = ref({}); // { studentId: teamId }
+
+// Team colors palette
+const teamColors = [
+  "#FF6B6B", // Red
+  "#4ECDC4", // Teal
+  "#FFE66D", // Yellow
+  "#95E1D3", // Mint
+  "#F38181", // Coral
+  "#AA96DA", // Purple
+  "#FCBAD3", // Pink
+  "#A8D8EA", // Light Blue
+  "#FFD93D", // Gold
+  "#6BCB77", // Green
+];
+
+function getTeamColor(teamId) {
+  if (!teamId) return null;
+  const teamIndex = teams.value.findIndex((t) => t.id === teamId);
+  if (teamIndex === -1) return null;
+  return teamColors[teamIndex % teamColors.length];
+}
+
+function getStudentTeamColor(studentId) {
+  const teamId = studentTeamMap.value[studentId];
+  return getTeamColor(teamId);
+}
 
 // ── Checkbox selection state ───────────────────────────
 const checkedClassIds = ref(new Set());
@@ -144,11 +178,11 @@ const usedLevels = ref({}); // { studentId: { skillId: { level: true } } }
 const levelCounts = ref({}); // { studentId: { skillId: { level: count } } }
 
 // ── Reactive computed arrays ─────────────────────────
-// Current students to display (based on selections)
+// Current students to display (based on selections and team filter)
 const currentStudents = computed(() => {
   const excluded = excludedStudentIds.value;
 
-  // Filter allStudents based on checked classes/students, exclusions, and gender
+  // Filter allStudents based on checked classes/students, exclusions, gender, and team
   return allStudents.value
     .filter((s) => {
       // Check if student is in a checked class
@@ -166,10 +200,17 @@ const currentStudents = computed(() => {
         matchesGender = s.gender === "F";
       }
 
+      // Apply team filter if teams are active
+      let matchesTeam = true;
+      if (teamsActive.value && activeTeamId.value) {
+        matchesTeam = studentTeamMap.value[s.id] === activeTeamId.value;
+      }
+
       return (
         (isInCheckedClass || isIndividuallyChecked) &&
         !isExcluded &&
-        matchesGender
+        matchesGender &&
+        matchesTeam
       );
     })
     .sort((a, b) =>
@@ -223,7 +264,66 @@ async function loadAllData() {
     .order("name");
   skills.value = skillData || [];
 
+  // Load teams
+  await loadTeams();
+
   loading.value = false;
+}
+
+// ── Teams functions ───────────────────────────────────
+async function loadTeams() {
+  const { data: teamsData } = await supabase
+    .from("tu_teams")
+    .select("*")
+    .order("name");
+  teams.value = teamsData || [];
+
+  // Load student-team relationships
+  const { data: relationships } = await supabase
+    .from("tu_student_teams")
+    .select("student_id, team_id");
+
+  // Build student to team map
+  const map = {};
+  if (relationships) {
+    for (const rel of relationships) {
+      map[rel.student_id] = rel.team_id;
+    }
+  }
+  studentTeamMap.value = map;
+}
+
+function openTeamModal() {
+  if (teamModalOpen.value) {
+    teamModalOpen.value = false;
+    return;
+  }
+  // Close other modals
+  classModalOpen.value = false;
+  evalModalOpen.value = false;
+  reportModalOpen.value = false;
+  teamModalOpen.value = true;
+}
+
+function onTeamsCreated(newTeams) {
+  teamModalOpen.value = false;
+  teamsActive.value = true;
+  loadTeams(); // Reload teams from database
+}
+
+function toggleTeamFilter(teamId) {
+  if (activeTeamId.value === teamId) {
+    activeTeamId.value = null; // Show all
+  } else {
+    activeTeamId.value = teamId; // Filter to this team
+  }
+}
+
+function toggleTeamsActive() {
+  teamsActive.value = !teamsActive.value;
+  if (!teamsActive.value) {
+    activeTeamId.value = null;
+  }
 }
 
 // ── Drag-and-drop state ───────────────────────────────
@@ -1038,6 +1138,9 @@ function onDragEnd() {
       student_id: studentId,
       skill_id: skillId,
       level: level,
+      team_id: teamsActive.value
+        ? studentTeamMap.value[studentId] || null
+        : null,
     };
     supabase
       .from("tu_session_events")
@@ -2305,6 +2408,17 @@ defineExpose({
         >
           <BarChart3 :size="20" />
         </button>
+
+        <!-- Teams button -->
+        <button
+          class="fab fab--teams"
+          :class="{ 'fab--modal-open': teamModalOpen }"
+          :disabled="currentStudents.length === 0"
+          title="Équipes"
+          @click="openTeamModal"
+        >
+          <Users :size="20" />
+        </button>
       </div>
       <div class="top-bar-spacer"></div>
       <div class="top-bar-right">
@@ -2418,7 +2532,9 @@ defineExpose({
 
       <!-- MODAL OVERLAY (top layer) -->
       <div
-        v-show="classModalOpen || evalModalOpen || reportModalOpen"
+        v-show="
+          classModalOpen || evalModalOpen || reportModalOpen || teamModalOpen
+        "
         class="picker-screen picker-screen--modal"
       >
         <Transition name="panel-drawer" mode="out-in">
@@ -3361,6 +3477,27 @@ defineExpose({
               </template>
             </div>
           </div>
+
+          <!-- Teams modal -->
+          <div
+            v-else-if="teamModalOpen"
+            key="teams"
+            class="picker-panel class-modal picker-panel--full class-modal--bg"
+          >
+            <div class="picker-panel-header">
+              <span>Créer des équipes</span>
+              <button class="close-btn" @click="teamModalOpen = false">
+                <ChevronUp :size="36" :stroke-width="3" />
+              </button>
+            </div>
+            <div class="class-modal-body">
+              <TeamSetup
+                :students="currentStudents"
+                @done="onTeamsCreated"
+                @cancel="teamModalOpen = false"
+              />
+            </div>
+          </div>
         </Transition>
       </div>
     </div>
@@ -3450,6 +3587,52 @@ defineExpose({
               </label>
             </div>
           </div>
+
+          <!-- Team filter section -->
+          <div v-if="teams.length > 0" class="filter-panel-section">
+            <div class="filter-panel-header-row">
+              <span class="filter-panel-label">Équipes</span>
+              <button
+                class="toggle-teams-btn"
+                :class="{ active: teamsActive }"
+                @click="toggleTeamsActive"
+                title="Activer/désactiver les équipes"
+              >
+                {{ teamsActive ? "Désactiver" : "Activer" }}
+              </button>
+            </div>
+            <div v-if="teamsActive" class="filter-panel-options">
+              <label
+                class="filter-option"
+                :class="{ active: activeTeamId === null }"
+              >
+                <input
+                  type="radio"
+                  name="teamFilter"
+                  :value="null"
+                  v-model="activeTeamId"
+                />
+                Toutes
+              </label>
+              <label
+                v-for="team in teams"
+                :key="team.id"
+                class="filter-option"
+                :class="{ active: activeTeamId === team.id }"
+                :style="{
+                  borderLeft: `4px solid ${getTeamColor(team.id)}`,
+                }"
+              >
+                <input
+                  type="radio"
+                  name="teamFilter"
+                  :value="team.id"
+                  v-model="activeTeamId"
+                />
+                {{ team.name }}
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3465,7 +3648,14 @@ defineExpose({
             :style="{ opacity: studentOpacity(student.id) }"
             @pointerdown="onDragStart($event, student)"
           >
-            <div class="student-bubble">
+            <div
+              class="student-bubble"
+              :style="{
+                background: teamsActive
+                  ? getStudentTeamColor(student.id) || '#457b9d'
+                  : '#457b9d',
+              }"
+            >
               {{ student.firstname }}
             </div>
           </div>
@@ -3476,7 +3666,14 @@ defineExpose({
             :key="student.id"
             class="student-wrapper"
           >
-            <div class="student-bubble-preview">
+            <div
+              class="student-bubble-preview"
+              :style="{
+                background: teamsActive
+                  ? getStudentTeamColor(student.id) || '#457b9d'
+                  : '#457b9d',
+              }"
+            >
               {{ student.firstname }}
             </div>
           </div>
@@ -3677,6 +3874,15 @@ textarea {
   font-weight: 700;
 }
 
+/* ── Teams button (dark blue) ─────────────────────── */
+.fab--teams.fab--filled,
+.fab--teams.fab--modal-open {
+  background: var(--court-blue);
+  border-color: var(--court-blue);
+  color: var(--text-light);
+  font-weight: 700;
+}
+
 /* ── Students row action button ───────────────────── */
 .students-row-btn {
   flex-shrink: 0;
@@ -3747,6 +3953,30 @@ textarea {
 .filter-option--disabled {
   opacity: 0.3 !important;
   cursor: not-allowed;
+}
+
+.filter-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.toggle-teams-btn {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: var(--text-light);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-teams-btn.active {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* ── Absent drop zone ─────────────────────────────── */
