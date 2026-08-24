@@ -1,579 +1,123 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { Trash2 } from "@lucide/vue";
 import { supabase } from "../supabase";
-import { Plus, PenIcon, X, Check, ChevronLeft, Upload } from "@lucide/vue";
 
 const props = defineProps({
   classId: { type: String, default: null },
 });
 
-const emit = defineEmits([
-  "close",
-  "saved",
-  "deleted",
-  "edit-student",
-  "remove-student",
-]);
+const emit = defineEmits(["saved", "deleted"]);
 
-// ── State ─────────────────────────────────────────────
 const className = ref("");
-const students = ref([]); // { id, firstname, lastname, editing, editFirstname, editLastname, class_name }
-const newFirstname = ref("");
-const newLastname = ref("");
-const addingStudent = ref(false);
+const studentCount = ref(0);
 const loading = ref(false);
 const originalClassName = ref("");
-
-// ── Excel import state ────────────────────────────────
-const excelImportOpen = ref(false);
-const excelRawText = ref("");
-const excelLoading = ref(false);
-const firstnameCol = ref(0); // which column index is firstname
-const lastnameCol = ref(1); // which column index is lastname
-
-// ── Computed ──────────────────────────────────────────
 const isNewClass = computed(() => !props.classId);
-const hasChanges = computed(() => className.value !== originalClassName.value);
 
-// ── Load data ─────────────────────────────────────────
 onMounted(async () => {
-  if (props.classId) {
-    await loadClass(props.classId);
-  }
+  if (props.classId) await loadClass(props.classId);
 });
 
 async function loadClass(id) {
   loading.value = true;
   try {
-    const [{ data: cls }, { data: stu }] = await Promise.all([
-      supabase.from("tu_classes").select("id, name").eq("id", id).single(),
-      supabase
-        .from("tu_students")
-        .select("id, firstname, lastname, class_id, tu_classes(name)")
-        .eq("class_id", id),
-    ]);
-    if (cls) {
-      className.value = cls.name;
-      originalClassName.value = cls.name;
-    }
-    // Sort students with French locale to handle accented characters correctly
-    const sortedStudents = (stu || []).sort((a, b) =>
-      a.firstname.localeCompare(b.firstname, "fr-FR"),
-    );
-    students.value = sortedStudents.map((s) => ({
-      ...s,
-      editing: false,
-      editFirstname: s.firstname,
-      editLastname: s.lastname,
-      class_name: s.tu_classes?.name || "",
-    }));
-  } catch (err) {
-    console.error("Failed to load class:", err);
+    const [{ data: cls, error: classError }, { count, error: studentError }] =
+      await Promise.all([
+        supabase.from("tu_classes").select("id, name").eq("id", id).single(),
+        supabase
+          .from("tu_students")
+          .select("id", { count: "exact", head: true })
+          .eq("class_id", id),
+      ]);
+    if (classError) throw classError;
+    if (studentError) throw studentError;
+    className.value = cls?.name || "";
+    originalClassName.value = className.value;
+    studentCount.value = count || 0;
+  } catch (error) {
+    console.error("Failed to load class:", error);
   } finally {
     loading.value = false;
   }
 }
 
-// ── Class actions ─────────────────────────────────────
 async function saveClass() {
-  if (!className.value.trim()) return;
+  const name = className.value.trim();
+  if (
+    !name ||
+    name === originalClassName.value ||
+    isNewClass.value ||
+    loading.value
+  )
+    return;
+
   loading.value = true;
   try {
-    if (props.classId && props.classId !== "new") {
-      // Update existing class
-      await supabase
-        .from("tu_classes")
-        .update({ name: className.value.trim() })
-        .eq("id", props.classId);
-    } else {
-      // Create new class
-      const { data, error } = await supabase
-        .from("tu_classes")
-        .insert({ name: className.value.trim() })
-        .select();
-
-      if (error) {
-        console.error("Failed to create class:", error);
-        alert("Erreur lors de la création de la classe");
-        return;
-      }
-
-      console.log("New class created:", data[0]);
-    }
+    const { error } = await supabase
+      .from("tu_classes")
+      .update({ name })
+      .eq("id", props.classId);
+    if (error) throw error;
+    originalClassName.value = name;
     emit("saved");
-  } catch (err) {
-    console.error("Failed to save class:", err);
+  } catch (error) {
+    console.error("Failed to save class:", error);
   } finally {
     loading.value = false;
   }
 }
 
 async function deleteClass() {
+  if (isNewClass.value || loading.value) return;
   if (!confirm("Supprimer cette classe et tous ses élèves ?")) return;
+
   loading.value = true;
   try {
-    await supabase.from("tu_classes").delete().eq("id", props.classId);
-    emit("deleted");
-  } catch (err) {
-    console.error("Failed to delete class:", err);
-  } finally {
-    loading.value = false;
-  }
-}
-
-// ── Student actions ───────────────────────────────────
-async function addStudent() {
-  const firstname = newFirstname.value.trim();
-  const lastname = newLastname.value.trim();
-  if (!firstname && !lastname) return;
-
-  // If it's a new class (no id yet), we need to save the class first
-  if (!props.classId) {
-    const { data: cls, error } = await supabase
+    const { error } = await supabase
       .from("tu_classes")
-      .insert({ name: className.value.trim() || "Nouvelle classe" })
-      .select()
-      .single();
-    if (error) {
-      console.error("Failed to create class:", error);
-      return;
-    }
-    const { error: stuErr } = await supabase
-      .from("tu_students")
-      .insert({ firstname, lastname, class_id: cls.id })
-      .select()
-      .single();
-    if (stuErr) {
-      console.error("Failed to add student:", stuErr);
-      return;
-    }
-    emit("saved");
-    return;
-  }
-
-  loading.value = true;
-  try {
-    const { data, error } = await supabase
-      .from("tu_students")
-      .insert({ firstname, lastname, class_id: props.classId })
-      .select()
-      .single();
-    if (error) throw error;
-    students.value.push({
-      ...data,
-      editing: false,
-      editFirstname: data.firstname,
-      editLastname: data.lastname,
-    });
-    newFirstname.value = "";
-    newLastname.value = "";
-    addingStudent.value = false;
-  } catch (err) {
-    console.error("Failed to add student:", err);
-  } finally {
-    loading.value = false;
-  }
-}
-
-function startEditStudent(student) {
-  student.editing = true;
-  student.editFirstname = student.firstname;
-  student.editLastname = student.lastname;
-}
-
-function cancelEditStudent(student) {
-  student.editing = false;
-  student.editFirstname = student.firstname;
-  student.editLastname = student.lastname;
-}
-
-async function saveStudent(student) {
-  const firstname = student.editFirstname.trim();
-  const lastname = student.editLastname.trim();
-  if (!firstname && !lastname) return;
-  loading.value = true;
-  try {
-    const { error } = await supabase
-      .from("tu_students")
-      .update({ firstname, lastname })
-      .eq("id", student.id);
-    if (error) throw error;
-    student.firstname = firstname;
-    student.lastname = lastname;
-    student.editing = false;
-  } catch (err) {
-    console.error("Failed to update student:", err);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function deleteStudent(studentId) {
-  if (!confirm("Supprimer cet élève ?")) return;
-  loading.value = true;
-  try {
-    const { error } = await supabase
-      .from("tu_students")
       .delete()
-      .eq("id", studentId);
+      .eq("id", props.classId);
     if (error) throw error;
-    students.value = students.value.filter((s) => s.id !== studentId);
-  } catch (err) {
-    console.error("Failed to delete student:", err);
+    emit("deleted");
+  } catch (error) {
+    console.error("Failed to delete class:", error);
   } finally {
     loading.value = false;
   }
 }
-
-function handleExcelImport() {
-  excelImportOpen.value = true;
-  excelRawText.value = "";
-}
-
-function cancelExcelImport() {
-  excelImportOpen.value = false;
-  excelRawText.value = "";
-}
-
-function parseExcelData(text) {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  if (lines.length === 0) return [];
-
-  // Detect delimiter
-  const tabCount = lines[0].split("\t").length;
-  const semicolonCount = lines[0].split(";").length;
-  const commaCount = lines[0].split(",").length;
-
-  let delimiter;
-  if (tabCount > semicolonCount && tabCount > commaCount && tabCount >= 2) {
-    delimiter = "\t";
-  } else if (semicolonCount > commaCount && semicolonCount >= 2) {
-    delimiter = ";";
-  } else if (commaCount >= 2) {
-    delimiter = ",";
-  } else {
-    delimiter = null; // single column
-  }
-
-  return lines
-    .map((line) => {
-      const parts = delimiter
-        ? line.split(delimiter).map((p) => p.trim())
-        : [line.trim()];
-      return {
-        firstname: parts[firstnameCol.value] || "",
-        lastname: parts[lastnameCol.value] || "",
-        cols: parts,
-      };
-    })
-    .filter((entry) => entry.firstname || entry.lastname);
-}
-
-function getColumnCount() {
-  const lines = excelRawText.value
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  if (lines.length === 0) return 0;
-  const tabCount = lines[0].split("\t").length;
-  const semicolonCount = lines[0].split(";").length;
-  const commaCount = lines[0].split(",").length;
-  return Math.max(tabCount, semicolonCount, commaCount);
-}
-
-const columnCount = computed(getColumnCount);
-
-async function confirmExcelImport() {
-  const entries = parseExcelData(excelRawText.value);
-  if (entries.length === 0) return;
-
-  if (!confirm(`${entries.length} élève(s) détecté(s). Confirmer l'import ?`))
-    return;
-
-  excelLoading.value = true;
-  try {
-    let targetClassId = props.classId;
-
-    // If no class yet, create it first
-    if (!targetClassId) {
-      const { data: cls, error } = await supabase
-        .from("tu_classes")
-        .insert({ name: className.value.trim() || "Nouvelle classe" })
-        .select()
-        .single();
-      if (error) throw error;
-      targetClassId = cls.id;
-    }
-
-    // Insert all students
-    const studentsToInsert = entries.map((e) => ({
-      firstname: e.firstname,
-      lastname: e.lastname,
-      class_id: targetClassId,
-    }));
-
-    const { error } = await supabase
-      .from("tu_students")
-      .insert(studentsToInsert);
-
-    if (error) throw error;
-
-    console.log("=== Import Excel réussi ===");
-    console.log(
-      `${studentsToInsert.length} élève(s) ajouté(s) à la classe ${className.value} (id: ${targetClassId})`,
-    );
-    console.log(JSON.stringify(studentsToInsert, null, 2));
-
-    // Reload students and close import
-    excelImportOpen.value = false;
-    excelRawText.value = "";
-
-    if (!props.classId) {
-      // New class was created — let parent know
-      emit("saved");
-    } else {
-      await loadClass(props.classId);
-    }
-  } catch (err) {
-    console.error("Import Excel échoué:", err);
-    alert("Erreur lors de l'import. Voir la console pour les détails.");
-  } finally {
-    excelLoading.value = false;
-  }
-}
-
-const parsedEntries = computed(() => {
-  if (!excelRawText.value.trim()) return [];
-  return parseExcelData(excelRawText.value);
-});
 </script>
 
 <template>
   <div class="class-detail">
-    <!-- Loading -->
-    <div v-if="loading && students.length === 0" class="detail-loading">
-      Chargement…
-    </div>
-
+    <div v-if="loading && !className" class="detail-loading">Chargement...</div>
     <template v-else>
-      <!-- Class name -->
       <div class="detail-section">
         <div class="class-name-row">
-          <label class="detail-label">Nom</label>
+          <label class="detail-label" for="class-name">Nom</label>
           <input
+            id="class-name"
             v-model="className"
             class="detail-input"
             placeholder="Ex: 3A"
+            :disabled="loading || isNewClass"
             @blur="saveClass"
             @keyup.enter="saveClass"
           />
+          <button
+            v-if="!isNewClass"
+            class="btn-icon btn-icon--delete-class"
+            title="Supprimer la classe"
+            :disabled="loading"
+            @click="deleteClass"
+          >
+            <Trash2 :size="24" />
+          </button>
         </div>
       </div>
-
-      <!-- Students list -->
-      <div class="detail-section">
-        <label class="detail-label">
-          Élèves
-          <span class="student-count">{{ students.length }}</span>
-        </label>
-
-        <div class="students-list">
-          <div
-            v-for="student in students"
-            :key="student.id"
-            class="student-row"
-            :class="{ editing: student.editing }"
-          >
-            <template v-if="student.editing">
-              <input
-                v-model="student.editFirstname"
-                class="detail-input student-input"
-                placeholder="Prénom"
-                autofocus
-                @keyup.enter="saveStudent(student)"
-                @keyup.escape="cancelEditStudent(student)"
-              />
-              <input
-                v-model="student.editLastname"
-                class="detail-input student-input"
-                placeholder="Nom"
-                @keyup.enter="saveStudent(student)"
-                @keyup.escape="cancelEditStudent(student)"
-              />
-              <span v-if="student.class_name" class="class-pill">
-                {{ student.class_name }}
-              </span>
-              <button
-                class="btn-icon btn-icon--confirm"
-                title="Confirmer"
-                @click="saveStudent(student)"
-              >
-                <Check :size="24" />
-              </button>
-              <button
-                class="btn-icon btn-icon--cancel"
-                title="Annuler"
-                @click="cancelEditStudent(student)"
-              >
-                <X :size="24" />
-              </button>
-            </template>
-            <template v-else>
-              <span
-                class="student-name"
-                @click="emit('edit-student', student.id)"
-              >
-                {{ student.firstname }} {{ student.lastname }}
-              </span>
-              <span class="student-row-actions">
-                <PenIcon :size="20" @click="emit('edit-student', student.id)" />
-                <X :size="20" @click="emit('remove-student', student.id)" />
-              </span>
-            </template>
-          </div>
-
-          <div v-if="students.length === 0" class="students-empty">
-            Aucun élève dans cette classe
-          </div>
-        </div>
-
-        <!-- Excel import form -->
-        <div v-if="excelImportOpen" class="excel-import-section">
-          <label class="detail-label">Copier-coller depuis Excel</label>
-          <textarea
-            v-model="excelRawText"
-            class="excel-textarea"
-            placeholder="Collez ici les données copiées d'Excel&#10;Une ligne par élève. Colonnes détectées automatiquement."
-            rows="5"
-            autofocus
-          ></textarea>
-
-          <!-- Column mapping (when multiple columns) -->
-          <div
-            v-if="columnCount >= 2 && parsedEntries.length > 0"
-            class="column-mapping"
-          >
-            <label class="detail-label">Correspondance des colonnes</label>
-            <div class="mapping-row">
-              <span class="mapping-label">Prénom (colonne)</span>
-              <select v-model.number="firstnameCol" class="mapping-select">
-                <option
-                  v-for="i in columnCount"
-                  :key="'fn-' + i"
-                  :value="i - 1"
-                >
-                  Colonne {{ i }}
-                </option>
-              </select>
-            </div>
-            <div class="mapping-row">
-              <span class="mapping-label">Nom (colonne)</span>
-              <select v-model.number="lastnameCol" class="mapping-select">
-                <option value="-1">— Aucune —</option>
-                <option
-                  v-for="i in columnCount"
-                  :key="'ln-' + i"
-                  :value="i - 1"
-                >
-                  Colonne {{ i }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Preview of parsed entries -->
-          <div v-if="parsedEntries.length > 0" class="excel-preview">
-            <span class="excel-preview-label">
-              {{ parsedEntries.length }} élève(s) détecté(s)
-            </span>
-            <div class="excel-preview-list">
-              <div
-                v-for="(entry, i) in parsedEntries"
-                :key="i"
-                class="excel-preview-row"
-              >
-                <span class="excel-preview-name"
-                  >{{ entry.firstname }} {{ entry.lastname }}</span
-                >
-                <span v-if="entry.cols.length > 2" class="excel-preview-extra">
-                  + {{ entry.cols.length - 2 }} colonne(s) ignorée(s)
-                </span>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="excelRawText.length > 0" class="excel-preview-empty">
-            Aucun nom valide détecté
-          </div>
-
-          <div class="excel-actions">
-            <button
-              class="btn btn-excel-confirm"
-              :disabled="excelLoading || parsedEntries.length === 0"
-              @click="confirmExcelImport"
-            >
-              {{ excelLoading ? "Import…" : "Ajouter" }}
-            </button>
-            <button
-              class="btn btn-excel-cancel"
-              :disabled="excelLoading"
-              @click="cancelExcelImport"
-            >
-              <X :size="16" /> Annuler
-            </button>
-          </div>
-        </div>
-
-        <!-- Add student manually (only when not in excel mode) -->
-        <div v-if="addingStudent && !excelImportOpen" class="add-student-row">
-          <input
-            v-model="newFirstname"
-            class="detail-input student-input"
-            placeholder="Prénom"
-            autofocus
-            @keyup.enter="addStudent"
-            @keyup.escape="addingStudent = false"
-          />
-          <input
-            v-model="newLastname"
-            class="detail-input student-input"
-            placeholder="Nom"
-            @keyup.enter="addStudent"
-            @keyup.escape="addingStudent = false"
-          />
-          <button class="btn-icon" title="Ajouter" @click="addStudent">
-            <Check :size="15" />
-          </button>
-          <button
-            class="btn-icon"
-            title="Annuler"
-            @click="addingStudent = false"
-          >
-            <X :size="15" />
-          </button>
-        </div>
-
-        <div class="add-actions">
-          <button
-            v-if="!addingStudent && !excelImportOpen"
-            class="btn-add-student"
-            title="Ajouter un élève"
-            @click="addingStudent = true"
-          >
-            <Plus :size="28" :stroke-width="3" />
-          </button>
-          <button
-            v-if="!excelImportOpen"
-            class="btn-add-student"
-            title="Importer depuis Excel (copier-coller)"
-            @click="handleExcelImport"
-          >
-            <Upload :size="21" :stroke-width="3" />
-          </button>
-        </div>
+      <div class="detail-section student-count-section">
+        <span class="detail-label">Élèves</span>
+        <span class="student-count">{{ studentCount }}</span>
       </div>
     </template>
   </div>
@@ -581,6 +125,11 @@ const parsedEntries = computed(() => {
 
 <style scoped>
 .class-detail {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   padding: 0 0 1rem;
   color: var(--text-light);
 }
@@ -594,15 +143,69 @@ const parsedEntries = computed(() => {
 }
 
 .detail-section {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.75rem 1rem;
+}
+
+.class-name-row,
+.student-count-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .detail-label {
   display: block;
+  flex-shrink: 0;
+  margin: 0;
+  color: #fff;
   font-size: 1.125rem;
   font-weight: 700;
-  color: #fff;
-  margin-bottom: 0.5rem;
+}
+
+.detail-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(33, 37, 41, 0.6);
+  color: var(--text-light);
+  font: inherit;
+  font-size: 1.5rem;
+  outline: none;
+}
+
+.detail-input:disabled {
+  opacity: 0.65;
+}
+
+.btn-icon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+}
+
+.btn-icon--delete-class {
+  color: #ffb4a2;
+}
+
+.btn-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .student-count {
@@ -615,343 +218,5 @@ const parsedEntries = computed(() => {
   background: #a8dadc42;
   font-size: 0.8rem;
   font-weight: 700;
-  margin-left: 0.4rem;
-}
-
-.class-name-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.class-name-row .detail-label {
-  margin-bottom: 0;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.detail-input {
-  flex: 1;
-  padding: 0.6rem 0.75rem;
-  border-radius: 999px;
-  /* border: 1.5px solid rgba(255, 215, 0, 0.2); */
-  background: rgba(33, 37, 41, 0.6);
-  color: var(--text-light);
-  font-size: 1.5rem;
-  outline: none;
-  transition: all 0.2s;
-  font-family: inherit;
-}
-.detail-input:focus {
-  border-color: var(--stadium-yellow);
-  background: rgba(33, 37, 41, 0.7);
-}
-.detail-input::placeholder {
-  color: var(--text-light);
-  opacity: 0.4;
-}
-
-.student-input {
-  font-size: 1.5rem;
-  padding: 0.45rem 0.65rem;
-}
-
-.class-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.75rem;
-  border-radius: 999px;
-  background: rgba(168, 218, 220, 0.25);
-  color: var(--text-light);
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* ── Buttons ────────────────────────────────────────── */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  border: 1.5px solid rgba(255, 215, 0, 0.2);
-  border-radius: 10px;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: inherit;
-  color: var(--text-light);
-  opacity: 0.7;
-  background: transparent;
-}
-
-.btn-save-class {
-  margin-top: 0.5rem;
-  width: 100%;
-  border-color: rgba(255, 215, 0, 0.3);
-  background: rgba(255, 215, 0, 0.1);
-  color: var(--text-light);
-  opacity: 0.8;
-}
-
-.btn-add-student {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: #a8dadc42;
-  color: var(--text-light);
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-icon {
-  background: transparent;
-  border: none;
-  color: var(--text-light);
-  opacity: 0.5;
-  cursor: pointer;
-  padding: 0.3rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.btn-icon--confirm,
-.btn-icon--cancel {
-  color: #fff;
-  opacity: 1;
-}
-
-.btn-icon--delete {
-  color: #fff;
-  opacity: 1;
-}
-
-/* ── Students list ──────────────────────────────────── */
-.students-list {
-  margin-bottom: 0.75rem;
-  max-height: calc(100vh - 300px);
-  overflow-y: auto;
-}
-
-.student-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 999px;
-  background: #a8dadc42;
-  color: var(--text-light);
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 0.3rem;
-  transition:
-    background 0.15s,
-    padding 0.2s ease;
-}
-.student-row.editing {
-  background: none;
-  padding: 10px 10px;
-}
-
-.student-name {
-  flex: 1;
-  font-size: 0.95rem;
-  color: var(--text-light);
-  cursor: pointer;
-}
-
-.student-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-shrink: 0;
-}
-
-.student-row-actions > * {
-  cursor: pointer;
-  opacity: 0.45;
-  transition: opacity 0.15s;
-}
-
-.students-empty {
-  padding: 1.25rem;
-  text-align: center;
-  color: var(--text-light);
-  opacity: 0.45;
-  font-style: italic;
-  font-size: 0.9rem;
-}
-
-.add-student-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0;
-}
-
-.add-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
-}
-
-/* ── Excel import ───────────────────────────────────── */
-.excel-import-section {
-  margin-bottom: 0.75rem;
-}
-
-.excel-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.6rem 0.75rem;
-  border-radius: 10px;
-  border: 1.5px solid rgba(80, 200, 120, 0.25);
-  background: rgba(20, 10, 2, 0.6);
-  color: var(--text-light);
-  font-size: 0.9rem;
-  font-family: inherit;
-  line-height: 1.5;
-  outline: none;
-  resize: vertical;
-  transition: all 0.2s;
-}
-.excel-textarea:focus {
-  border-color: rgba(80, 200, 120, 0.6);
-  background: rgba(30, 16, 3, 0.7);
-}
-.excel-textarea::placeholder {
-  color: var(--text-light);
-  opacity: 0.35;
-}
-
-.excel-preview {
-  margin-top: 0.6rem;
-}
-
-.excel-preview-label {
-  display: block;
-  font-size: 0.75rem;
-  color: rgba(100, 200, 130, 0.7);
-  font-weight: 600;
-  margin-bottom: 0.35rem;
-}
-
-.excel-preview-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.excel-preview-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 6px;
-  background: rgba(80, 200, 120, 0.06);
-  font-size: 0.85rem;
-}
-
-.excel-preview-name {
-  color: var(--text-light);
-  opacity: 0.85;
-  font-weight: 500;
-}
-
-.excel-preview-extra {
-  color: var(--text-light);
-  opacity: 0.45;
-  font-size: 0.75rem;
-  font-style: italic;
-}
-
-.excel-preview-empty {
-  margin-top: 0.5rem;
-  padding: 0.6rem;
-  text-align: center;
-  color: var(--text-light);
-  opacity: 0.45;
-  font-size: 0.82rem;
-  font-style: italic;
-}
-
-.excel-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
-}
-
-.btn-excel-confirm {
-  border-color: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  background: transparent;
-}
-
-.btn-excel-cancel {
-  border-color: rgba(255, 200, 80, 0.15);
-  color: var(--text-light);
-  opacity: 0.55;
-}
-
-/* ── Column mapping ─────────────────────────────────── */
-.column-mapping {
-  margin-top: 0.6rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: 10px;
-  background: rgba(80, 200, 120, 0.04);
-  border: 1px solid rgba(80, 200, 120, 0.12);
-}
-
-.mapping-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-.mapping-row:last-child {
-  margin-bottom: 0;
-}
-
-.mapping-label {
-  font-size: 0.8rem;
-  color: var(--text-light);
-  opacity: 0.6;
-  min-width: 100px;
-  flex-shrink: 0;
-}
-
-.mapping-select {
-  flex: 1;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  border: 1.5px solid rgba(80, 200, 120, 0.2);
-  background: rgba(20, 10, 2, 0.6);
-  color: var(--text-light);
-  font-size: 0.82rem;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.mapping-select:focus {
-  border-color: rgba(80, 200, 120, 0.5);
-}
-.mapping-select option {
-  background: #1a0e04;
-  color: var(--text-light);
 }
 </style>

@@ -1,0 +1,2 @@
+ALTER TABLE tu_students
+ADD COLUMN IF NOT EXISTS birth_date DATE;

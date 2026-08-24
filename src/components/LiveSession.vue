@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Undo2,
   Download,
+  Upload,
   Check,
   HatGlasses,
   Funnel,
@@ -41,6 +42,7 @@ const Sneaker = createLucideIcon("Sneaker", [
 ]);
 import "../styles/shared.css";
 import ClassDetail from "./ClassDetail.vue";
+import StudentImportModal from "./StudentImportModal.vue";
 import TeamSetup from "./TeamSetup.vue";
 import RangeInput from "./RangeInput.vue";
 
@@ -156,6 +158,7 @@ const isAddingNewClass = ref(false);
 const classDetailId = ref(null); // null | 'new' | classId — opens ClassDetail view
 const studentDetailId = ref(null); // null | studentId — opens student detail view
 const studentDetailData = ref(null); // { id, firstname, lastname, gender } loaded from DB
+const studentImportOpen = ref(false);
 
 // ── Evaluation CRUD state ──────────────────────────────
 const editingEvalId = ref(null);
@@ -267,7 +270,7 @@ async function loadAllData() {
   // Don't order in database - we'll sort in JavaScript with proper French locale
   const { data: studentData } = await supabase
     .from("tu_students")
-    .select("id, firstname, lastname, gender, class_id");
+    .select("id, firstname, lastname, gender, birth_date, class_id");
   allStudents.value = studentData || [];
 
   // Load skills
@@ -381,6 +384,17 @@ function openClassModal() {
   classDetailId.value = null;
   classModalTab.value = "select";
   cancelClassEdit();
+}
+
+function openStudentImport() {
+  studentImportOpen.value = true;
+  classDetailId.value = null;
+  studentDetailId.value = null;
+}
+
+async function onStudentImportImported() {
+  studentImportOpen.value = false;
+  await loadAllData();
 }
 
 // ── Class CRUD ────────────────────────────────────────
@@ -2616,253 +2630,268 @@ defineExpose({
             class="picker-panel class-modal picker-panel--full class-modal--bg"
           >
             <div class="class-modal-body">
-              <!-- Close button -->
-              <button
-                v-if="studentDetailId === null"
-                class="close-modal-btn"
-                @click="toggleModal('class')"
-              >
-                <ChevronUp :size="36" :stroke-width="3" />
-              </button>
+              <div class="class-modal-content">
+                <aside class="class-modal-rail" aria-label="Actions de classe">
+                  <button
+                    class="class-modal-rail-button close"
+                    title="Fermer"
+                    @click="toggleModal('class')"
+                  >
+                    <ChevronUp :size="28" :stroke-width="3" />
+                  </button>
+                  <button
+                    class="class-modal-rail-button"
+                    title="Importer des élèves"
+                    @click="openStudentImport"
+                  >
+                    <Upload :size="24" :stroke-width="2.5" />
+                  </button>
+                </aside>
 
-              <!-- 3-column layout for class management -->
-              <div class="class-three-column-layout">
-                <!-- Column 1: Classes list -->
-                <div class="class-column">
-                  <div class="column-header">
-                    <h3>Classes</h3>
-                    <button
-                      class="picker-item picker-item--inline add-btn"
-                      @click="handleAddNewClass"
-                    >
-                      <Plus :size="20" :stroke-width="3" />
-                    </button>
-                  </div>
-                  <div class="class-list">
-                    <div v-for="cls in classes" :key="cls.id">
+                <!-- 3-column layout for class management -->
+                <div class="class-three-column-layout">
+                  <!-- Column 1: Classes list -->
+                  <div class="class-column">
+                    <div class="column-header">
+                      <h3>Classes</h3>
                       <button
-                        class="picker-item class-item"
-                        :class="{
-                          selected: selectedClassId === cls.id,
-                        }"
-                        @click="selectClassInModal(cls.id)"
+                        class="picker-item picker-item--inline add-btn"
+                        @click="handleAddNewClass"
                       >
-                        <div>{{ cls.name }}</div>
-                        <div class="class-item-buttons">
-                          <div
-                            class="edit-class-btn-small"
-                            @click.stop="classDetailId = cls.id"
-                            title="Modifier la classe"
-                          >
-                            <PenIcon :size="16" />
-                          </div>
-                          <div
-                            class="row-checkbox"
-                            :class="{ checked: checkedClassIds.has(cls.id) }"
-                            @click.stop="handleClassCheck(cls)"
-                          >
-                            <Check
-                              v-if="checkedClassIds.has(cls.id)"
-                              :size="24"
-                              :stroke-width="3"
-                            />
-                          </div>
-                        </div>
+                        <Plus :size="20" :stroke-width="3" />
                       </button>
                     </div>
-                  </div>
-                </div>
-
-                <!-- Column 2: Students or Class Detail -->
-                <div class="students-column">
-                  <Transition name="fade-slide" mode="out-in">
-                    <!-- Show ClassDetail form when editing a class -->
-                    <div
-                      v-if="classDetailId !== null"
-                      :key="'class-detail'"
-                      class="class-detail-container"
-                    >
-                      <ClassDetail
-                        :class-id="
-                          classDetailId === 'new' ? null : classDetailId
-                        "
-                        @close="classDetailId = null"
-                        @saved="onClassDetailSaved"
-                        @deleted="onClassDetailDeleted"
-                        @edit-student="studentDetailId = $event"
-                        @remove-student="handleRemoveStudent"
-                      />
-                    </div>
-                    <!-- Otherwise show student list -->
-                    <div
-                      v-else
-                      :key="'student-list'"
-                      class="students-column-content"
-                    >
-                      <div class="column-header">
-                        <h3>
-                          {{
-                            selectedClassId
-                              ? `Élèves`
-                              : "Sélectionnez une classe"
-                          }}
-                        </h3>
+                    <div class="class-list">
+                      <div v-for="cls in classes" :key="cls.id">
                         <button
-                          v-if="selectedClassId"
-                          class="picker-item picker-item--inline add-btn"
-                          @click="handleAddStudentToClass(selectedClassId)"
+                          class="picker-item class-item"
+                          :class="{
+                            selected: selectedClassId === cls.id,
+                          }"
+                          @click="selectClassInModal(cls.id)"
                         >
-                          <Plus :size="20" :stroke-width="3" />
-                        </button>
-                      </div>
-                      <div v-if="selectedClassId" class="student-list">
-                        <div
-                          v-for="student in currentClassStudents"
-                          :key="student.id"
-                          class="student-item-row"
-                        >
-                          <button
-                            class="picker-item student-item"
-                            :class="{
-                              selected: studentDetailId === student.id,
-                            }"
-                            @click="studentDetailId = student.id"
-                          >
-                            <span
-                              >{{ student.firstname }}
-                              {{ student.lastname }}</span
+                          <div>{{ cls.name }}</div>
+                          <div class="class-item-buttons">
+                            <div
+                              class="edit-class-btn-small"
+                              @click.stop="classDetailId = cls.id"
+                              title="Modifier la classe"
                             >
-                            <span
+                              <PenIcon :size="16" />
+                            </div>
+                            <div
                               class="row-checkbox"
-                              :class="{
-                                checked:
-                                  checkedStudentIds.has(student.id) ||
-                                  (checkedClassIds.has(selectedClassId) &&
-                                    !excludedStudentIds.has(student.id)),
-                              }"
-                              @click.stop="
-                                handleStudentCheck(
-                                  { id: selectedClassId },
-                                  student,
-                                )
-                              "
+                              :class="{ checked: checkedClassIds.has(cls.id) }"
+                              @click.stop="handleClassCheck(cls)"
                             >
                               <Check
-                                v-if="
-                                  checkedStudentIds.has(student.id) ||
-                                  (checkedClassIds.has(selectedClassId) &&
-                                    !excludedStudentIds.has(student.id))
-                                "
+                                v-if="checkedClassIds.has(cls.id)"
                                 :size="24"
                                 :stroke-width="3"
                               />
-                            </span>
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Column 2: Students or Class Detail -->
+                  <div class="students-column">
+                    <Transition name="fade-slide" mode="out-in">
+                      <!-- Show ClassDetail form when editing a class -->
+                      <div
+                        v-if="classDetailId !== null"
+                        :key="'class-detail'"
+                        class="class-detail-container"
+                      >
+                        <ClassDetail
+                          :class-id="
+                            classDetailId === 'new' ? null : classDetailId
+                          "
+                          @close="classDetailId = null"
+                          @saved="onClassDetailSaved"
+                          @deleted="onClassDetailDeleted"
+                          @edit-student="studentDetailId = $event"
+                          @remove-student="handleRemoveStudent"
+                        />
+                      </div>
+                      <!-- Otherwise show student list -->
+                      <div
+                        v-else
+                        :key="'student-list'"
+                        class="students-column-content"
+                      >
+                        <div class="column-header">
+                          <h3>
+                            {{
+                              selectedClassId
+                                ? `Élèves`
+                                : "Sélectionnez une classe"
+                            }}
+                          </h3>
+                          <button
+                            v-if="selectedClassId"
+                            class="picker-item picker-item--inline add-btn"
+                            @click="handleAddStudentToClass(selectedClassId)"
+                          >
+                            <Plus :size="20" :stroke-width="3" />
                           </button>
                         </div>
-                        <div
-                          v-if="!currentClassStudents?.length"
-                          class="picker-empty"
-                        >
-                          Aucun élève dans cette classe
+                        <div v-if="selectedClassId" class="student-list">
+                          <div
+                            v-for="student in currentClassStudents"
+                            :key="student.id"
+                            class="student-item-row"
+                          >
+                            <button
+                              class="picker-item student-item"
+                              :class="{
+                                selected: studentDetailId === student.id,
+                              }"
+                              @click="studentDetailId = student.id"
+                            >
+                              <span
+                                >{{ student.firstname }}
+                                {{ student.lastname }}</span
+                              >
+                              <span
+                                class="row-checkbox"
+                                :class="{
+                                  checked:
+                                    checkedStudentIds.has(student.id) ||
+                                    (checkedClassIds.has(selectedClassId) &&
+                                      !excludedStudentIds.has(student.id)),
+                                }"
+                                @click.stop="
+                                  handleStudentCheck(
+                                    { id: selectedClassId },
+                                    student,
+                                  )
+                                "
+                              >
+                                <Check
+                                  v-if="
+                                    checkedStudentIds.has(student.id) ||
+                                    (checkedClassIds.has(selectedClassId) &&
+                                      !excludedStudentIds.has(student.id))
+                                  "
+                                  :size="24"
+                                  :stroke-width="3"
+                                />
+                              </span>
+                            </button>
+                          </div>
+                          <div
+                            v-if="!currentClassStudents?.length"
+                            class="picker-empty"
+                          >
+                            Aucun élève dans cette classe
+                          </div>
+                        </div>
+                      </div>
+                    </Transition>
+                  </div>
+
+                  <!-- Column 3: Student details (when editing) -->
+                  <Transition name="fade-slide" mode="out-in">
+                    <div
+                      v-if="studentDetailId !== null && studentDetailData"
+                      class="student-detail-column"
+                    >
+                      <div class="student-detail-layout">
+                        <!-- Photo placeholder -->
+                        <div class="student-detail-photo">
+                          <div class="student-photo-circle">
+                            <span class="student-photo-initials">{{
+                              getInitials(
+                                studentDetailEditing?.firstname ||
+                                  studentDetailData?.firstname,
+                                studentDetailEditing?.lastname ||
+                                  studentDetailData?.lastname,
+                              )
+                            }}</span>
+                          </div>
+                        </div>
+
+                        <!-- Right column: fields -->
+                        <div class="student-detail-fields">
+                          <div class="detail-section">
+                            <label class="detail-label">Prénom</label>
+                            <input
+                              v-model="studentDetailEditing.firstname"
+                              class="detail-input"
+                              placeholder="Prénom"
+                              @blur="saveStudentDetail"
+                            />
+                          </div>
+                          <div class="detail-section">
+                            <label class="detail-label">Nom</label>
+                            <input
+                              v-model="studentDetailEditing.lastname"
+                              class="detail-input"
+                              placeholder="Nom"
+                              @blur="saveStudentDetail"
+                            />
+                          </div>
+                          <div class="detail-section">
+                            <label class="detail-label">Sexe</label>
+                            <div class="gender-selector">
+                              <button
+                                class="gender-btn"
+                                :class="{
+                                  active: studentDetailEditing.gender === 'M',
+                                }"
+                                @click="toggleGender('M')"
+                              >
+                                M
+                              </button>
+                              <button
+                                class="gender-btn"
+                                :class="{
+                                  active: studentDetailEditing.gender === 'F',
+                                }"
+                                @click="toggleGender('F')"
+                              >
+                                F
+                              </button>
+                            </div>
+                          </div>
+                          <div
+                            v-if="studentDetailData.class_name"
+                            class="detail-section"
+                          >
+                            <label class="detail-label">Classe</label>
+                            <span class="class-pill">{{
+                              studentDetailData.class_name
+                            }}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Navigation bar -->
+                      <div class="detail-nav-bar detail-nav-bar--inline">
+                        <!-- <button class="back-btn" @click="studentDetailId = null">
+                        <ChevronLeft :size="36" :stroke-width="3" />
+                      </button> -->
+                        <div class="detail-actions">
+                          <button
+                            class="header-trash-btn"
+                            title="Supprimer l'élève"
+                            @click="deleteStudentFromDetail"
+                          >
+                            <Trash2 :size="36" />
+                          </button>
                         </div>
                       </div>
                     </div>
                   </Transition>
                 </div>
-
-                <!-- Column 3: Student details (when editing) -->
-                <Transition name="fade-slide" mode="out-in">
-                  <div
-                    v-if="studentDetailId !== null && studentDetailData"
-                    class="student-detail-column"
-                  >
-                    <div class="student-detail-layout">
-                      <!-- Photo placeholder -->
-                      <div class="student-detail-photo">
-                        <div class="student-photo-circle">
-                          <span class="student-photo-initials">{{
-                            getInitials(
-                              studentDetailEditing?.firstname ||
-                                studentDetailData?.firstname,
-                              studentDetailEditing?.lastname ||
-                                studentDetailData?.lastname,
-                            )
-                          }}</span>
-                        </div>
-                      </div>
-
-                      <!-- Right column: fields -->
-                      <div class="student-detail-fields">
-                        <div class="detail-section">
-                          <label class="detail-label">Prénom</label>
-                          <input
-                            v-model="studentDetailEditing.firstname"
-                            class="detail-input"
-                            placeholder="Prénom"
-                            @blur="saveStudentDetail"
-                          />
-                        </div>
-                        <div class="detail-section">
-                          <label class="detail-label">Nom</label>
-                          <input
-                            v-model="studentDetailEditing.lastname"
-                            class="detail-input"
-                            placeholder="Nom"
-                            @blur="saveStudentDetail"
-                          />
-                        </div>
-                        <div class="detail-section">
-                          <label class="detail-label">Sexe</label>
-                          <div class="gender-selector">
-                            <button
-                              class="gender-btn"
-                              :class="{
-                                active: studentDetailEditing.gender === 'M',
-                              }"
-                              @click="toggleGender('M')"
-                            >
-                              M
-                            </button>
-                            <button
-                              class="gender-btn"
-                              :class="{
-                                active: studentDetailEditing.gender === 'F',
-                              }"
-                              @click="toggleGender('F')"
-                            >
-                              F
-                            </button>
-                          </div>
-                        </div>
-                        <div
-                          v-if="studentDetailData.class_name"
-                          class="detail-section"
-                        >
-                          <label class="detail-label">Classe</label>
-                          <span class="class-pill">{{
-                            studentDetailData.class_name
-                          }}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- Navigation bar -->
-                    <div class="detail-nav-bar detail-nav-bar--inline">
-                      <!-- <button class="back-btn" @click="studentDetailId = null">
-                        <ChevronLeft :size="36" :stroke-width="3" />
-                      </button> -->
-                      <div class="detail-actions">
-                        <button
-                          class="header-trash-btn"
-                          title="Supprimer l'élève"
-                          @click="deleteStudentFromDetail"
-                        >
-                          <Trash2 :size="36" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </Transition>
               </div>
+              <StudentImportModal
+                v-if="studentImportOpen"
+                @close="studentImportOpen = false"
+                @imported="onStudentImportImported"
+              />
             </div>
           </div>
 
@@ -4676,8 +4705,41 @@ textarea {
   flex-wrap: wrap;
   align-items: center;
   padding: 1rem;
+  position: relative;
   /* background: rgba(20, 10, 2, 0.45); */
   /* padding-bottom: 100px; */
+}
+
+.class-modal-content {
+  display: flex;
+  gap: 0.65rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.class-modal-rail {
+  /* flex: 0 0 42px; */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  /* padding-top: 0.1rem; */
+}
+
+.class-modal-rail-button {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-light);
+  cursor: pointer;
+  &.close {
+    background: none;
+  }
 }
 
 .class-modal-body::-webkit-scrollbar {
@@ -6078,6 +6140,8 @@ textarea {
 
 /* ── Three-column layout for class modal ───────────── */
 .class-three-column-layout {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
