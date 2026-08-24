@@ -173,22 +173,88 @@ function updateTeamName(teamIndex, newName) {
   generatedTeams.value[teamIndex].name = newName;
 }
 
-// Reshuffle teams with current settings (random assignment)
+// Reshuffle teams with current settings (random assignment while respecting constraints)
 async function reshuffleTeams() {
   if (generatedTeams.value.length === 0) return;
 
   // Save current team names
   const teamNames = generatedTeams.value.map((t) => t.name);
 
-  // Temporarily set separation method to random
-  const originalMethod = separationMethod.value;
-  separationMethod.value = "random";
+  // For gender separation, we need to shuffle within gender groups
+  if (separationMethod.value === "gender") {
+    // Separate by gender first
+    const males = props.students.filter((s) => s.gender === "M");
+    const females = props.students.filter((s) => s.gender === "F");
+    const others = props.students.filter(
+      (s) => s.gender !== "M" && s.gender !== "F",
+    );
 
-  // Regenerate teams
-  await generateTeams();
+    // Shuffle each group independently
+    const shuffledMales = males.sort(() => Math.random() - 0.5);
+    const shuffledFemales = females.sort(() => Math.random() - 0.5);
+    const shuffledOthers = others.sort(() => Math.random() - 0.5);
 
-  // Restore original separation method
-  separationMethod.value = originalMethod;
+    let studentsWithInfo;
+    if (genderGrouping.value === "separate") {
+      // Keep genders separate but shuffled within groups
+      studentsWithInfo = [
+        ...shuffledMales,
+        ...shuffledFemales,
+        ...shuffledOthers,
+      ];
+    } else {
+      // Mix genders but shuffled
+      studentsWithInfo = [];
+      const maxLen = Math.max(
+        shuffledMales.length,
+        shuffledFemales.length,
+        shuffledOthers.length,
+      );
+      for (let i = 0; i < maxLen; i++) {
+        if (i < shuffledMales.length) studentsWithInfo.push(shuffledMales[i]);
+        if (i < shuffledFemales.length)
+          studentsWithInfo.push(shuffledFemales[i]);
+        if (i < shuffledOthers.length) studentsWithInfo.push(shuffledOthers[i]);
+      }
+    }
+
+    // Distribute using the same logic as generateTeams
+    const numTeams =
+      teamMode.value === "count"
+        ? teamCount.value
+        : Math.ceil(props.students.length / teamSize.value);
+
+    const teams = Array.from({ length: numTeams }, (_, i) => ({
+      id: `temp-${i}`,
+      name: `Équipe ${i + 1}`,
+      students: [],
+    }));
+
+    if (genderGrouping.value === "separate") {
+      let currentTeamIndex = 0;
+      let currentTeamCount = 0;
+      const targetSize = Math.ceil(studentsWithInfo.length / numTeams);
+
+      studentsWithInfo.forEach((student) => {
+        teams[currentTeamIndex].students.push(student);
+        currentTeamCount++;
+        if (currentTeamCount >= targetSize && currentTeamIndex < numTeams - 1) {
+          currentTeamIndex++;
+          currentTeamCount = 0;
+        }
+      });
+    } else {
+      studentsWithInfo.forEach((student, index) => {
+        const teamIndex = index % numTeams;
+        teams[teamIndex].students.push(student);
+      });
+    }
+
+    generatedTeams.value = teams;
+  } else {
+    // For non-gender methods, just regenerate normally (which includes randomness)
+    await generateTeams();
+  }
 
   // Restore team names
   generatedTeams.value.forEach((team, index) => {
