@@ -345,10 +345,6 @@ async function deleteItem(id) {
   justify-content: center;
   transition: color 0.2s;
 }
-.close-btn:hover {
-  color: var(--text-light);
-  opacity: 0.9;
-}
 
 /* ── Tabs ───────────────────────────────────────────── */
 .crud-tabs {
@@ -371,10 +367,6 @@ async function deleteItem(id) {
   transition: all 0.2s;
   font-size: 0.85rem;
   letter-spacing: 0.05em;
-}
-.tab-btn:hover {
-  color: var(--text-light);
-  opacity: 0.8;
 }
 .tab-btn.active {
   color: var(--text-light);
@@ -445,18 +437,7 @@ async function deleteItem(id) {
   justify-content: center;
   transition: all 0.2s;
 }
-.action-btn:hover {
-  background: rgba(255, 200, 80, 0.3);
-  color: var(--text-light);
-  opacity: 0.9;
-}
-.action-btn.delete:hover {
-  background: rgba(255, 100, 80, 0.3);
-  color: var(--track-red);
-  opacity: 0.8;
-}
-
-.item-edit {
+.action-btn.delete {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -491,17 +472,10 @@ async function deleteItem(id) {
   background: #e8a820;
   color: #1a0e04;
 }
-.save-btn:hover {
-  background: #f0b830;
-  transform: scale(1.05);
-}
 
 .cancel-btn {
   background: rgba(255, 100, 80, 0.3);
   color: #ff9080;
-}
-.cancel-btn:hover {
-  background: rgba(255, 100, 80, 0.5);
 }
 
 .add-btn {

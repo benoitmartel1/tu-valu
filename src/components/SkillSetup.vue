@@ -180,10 +180,6 @@ h2 {
   color: #888;
   font-size: 0.9rem;
 }
-.remove-btn:hover {
-  color: #c00;
-  border-color: #c00;
-}
 
 textarea {
   width: 100%;
@@ -223,10 +219,6 @@ textarea {
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
 }
-.add-eval-btn:hover {
-  border-color: #555;
-  color: #222;
-}
 
 .error {
   color: #c00;
@@ -243,9 +235,6 @@ textarea {
   border-radius: 8px;
   font-size: 1rem;
   cursor: pointer;
-}
-.save-btn:hover:not(:disabled) {
-  background: #1446b8;
 }
 .save-btn:disabled {
   opacity: 0.6;

@@ -479,10 +479,6 @@ function switchTab(tab) {
   transition: background 0.2s;
 }
 
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 .auth-header {
   text-align: center;
   margin-bottom: 24px;
@@ -518,10 +514,6 @@ function switchTab(tab) {
   transition: all 0.2s;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
-}
-
-.tab-btn:hover {
-  color: var(--text-light);
 }
 
 .tab-btn.active {
@@ -594,10 +586,6 @@ function switchTab(tab) {
   margin-top: 8px;
 }
 
-.submit-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
 .submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -615,10 +603,6 @@ function switchTab(tab) {
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
-}
-
-.link-btn:hover {
-  opacity: 0.8;
 }
 
 .social-login {
@@ -669,18 +653,5 @@ function switchTab(tab) {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-}
-
-.social-btn:hover {
-  background: var(--bg-dark);
-  border-color: var(--text-muted);
-}
-
-.social-btn.github:hover {
-  border-color: #6e7681;
-}
-
-.social-btn.google:hover {
-  border-color: #4285f4;
 }
 </style>

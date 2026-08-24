@@ -1,55 +1,63 @@
 <script setup>
-import { ref } from 'vue'
-import { supabase } from '../supabase'
+import { ref } from "vue";
+import { supabase } from "../supabase";
 
-const emit = defineEmits(['done'])
+const emit = defineEmits(["done"]);
 
-const classes = ref([{ name: '', rawText: '' }])
-const saving = ref(false)
-const error = ref(null)
+const classes = ref([{ name: "", rawText: "" }]);
+const saving = ref(false);
+const error = ref(null);
 
 function parseNames(rawText) {
   return rawText
-    .split('\n')
-    .map(line => line.split('\t')[0].trim())
-    .filter(name => name.length > 0)
+    .split("\n")
+    .map((line) => line.split("\t")[0].trim())
+    .filter((name) => name.length > 0);
 }
 
 function addClass() {
-  classes.value.push({ name: '', rawText: '' })
+  classes.value.push({ name: "", rawText: "" });
 }
 
 function removeClass(index) {
-  classes.value.splice(index, 1)
+  classes.value.splice(index, 1);
 }
 
 async function saveAll() {
-  error.value = null
-  const valid = classes.value.filter(c => c.name.trim() && parseNames(c.rawText).length > 0)
+  error.value = null;
+  const valid = classes.value.filter(
+    (c) => c.name.trim() && parseNames(c.rawText).length > 0,
+  );
   if (valid.length === 0) {
-    error.value = 'Add at least one class with a name and students.'
-    return
+    error.value = "Add at least one class with a name and students.";
+    return;
   }
-  saving.value = true
+  saving.value = true;
   try {
     for (const cls of valid) {
       const { data: classData, error: classError } = await supabase
-        .from('tu_classes')
+        .from("tu_classes")
         .insert({ name: cls.name.trim() })
         .select()
-        .single()
-      if (classError) throw classError
+        .single();
+      if (classError) throw classError;
 
       const { error: studentsError } = await supabase
-        .from('tu_students')
-        .insert(parseNames(cls.rawText).map(name => ({ firstname: name, lastname: '', class_id: classData.id })))
-      if (studentsError) throw studentsError
+        .from("tu_students")
+        .insert(
+          parseNames(cls.rawText).map((name) => ({
+            firstname: name,
+            lastname: "",
+            class_id: classData.id,
+          })),
+        );
+      if (studentsError) throw studentsError;
     }
-    emit('done')
+    emit("done");
   } catch (e) {
-    error.value = e.message
+    error.value = e.message;
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 </script>
@@ -65,7 +73,13 @@ async function saveAll() {
           placeholder="Class name (e.g. 3A)"
           class="class-name-input"
         />
-        <button v-if="classes.length > 1" class="remove-btn" @click="removeClass(i)">✕</button>
+        <button
+          v-if="classes.length > 1"
+          class="remove-btn"
+          @click="removeClass(i)"
+        >
+          ✕
+        </button>
       </div>
 
       <textarea
@@ -76,7 +90,11 @@ Copying a single Excel column works directly."
       />
 
       <div v-if="parseNames(cls.rawText).length" class="preview">
-        <span v-for="name in parseNames(cls.rawText)" :key="name" class="student-chip">
+        <span
+          v-for="name in parseNames(cls.rawText)"
+          :key="name"
+          class="student-chip"
+        >
           {{ name }}
         </span>
       </div>
@@ -87,7 +105,7 @@ Copying a single Excel column works directly."
     <p v-if="error" class="error">{{ error }}</p>
 
     <button class="save-btn" :disabled="saving" @click="saveAll">
-      {{ saving ? 'Saving…' : 'Save classes' }}
+      {{ saving ? "Saving…" : "Save classes" }}
     </button>
   </div>
 </template>
@@ -136,7 +154,6 @@ h2 {
   color: #888;
   font-size: 0.9rem;
 }
-.remove-btn:hover { color: #c00; border-color: #c00; }
 
 textarea {
   width: 100%;
@@ -176,7 +193,6 @@ textarea {
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
 }
-.add-class-btn:hover { border-color: #555; color: #222; }
 
 .error {
   color: #c00;
@@ -194,6 +210,8 @@ textarea {
   font-size: 1rem;
   cursor: pointer;
 }
-.save-btn:hover:not(:disabled) { background: #1446b8; }
-.save-btn:disabled { opacity: 0.6; cursor: default; }
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 </style>

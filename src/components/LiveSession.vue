@@ -3585,11 +3585,6 @@ textarea {
   transition: all 0.2s;
 }
 
-.logout-btn:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
 .students-row {
   padding: 15px;
   gap: 10px;
@@ -4331,10 +4326,6 @@ textarea {
   border-radius: 2px;
 }
 
-.class-modal-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
 .class-edit-row {
   padding: 0.75rem 0 0.75rem 1rem;
 }
@@ -4392,12 +4383,6 @@ textarea {
   transition: all 0.2s;
 }
 
-.picker-tab:hover {
-  color: var(--text-light);
-  opacity: 0.8;
-  background: rgba(255, 200, 80, 0.1);
-}
-
 .picker-tab.active {
   color: var(--text-light);
   opacity: 1;
@@ -4429,9 +4414,6 @@ textarea {
   border-radius: 12px;
   transition: opacity 0.2s;
 }
-.header-trash-btn:hover {
-  opacity: 0.7;
-}
 
 .action-btn {
   background: transparent;
@@ -4461,21 +4443,8 @@ textarea {
   transition: all 0.2s;
 }
 
-.save-btn:hover {
-  background: rgba(232, 168, 32, 0.3);
-  border-color: #e8a820;
-  color: var(--text-light);
-  opacity: 1;
-}
-
-.cancel-btn:hover {
-  background: rgba(255, 80, 60, 0.2);
-  border-color: rgba(255, 100, 80, 0.5);
-  color: var(--text-light);
-  opacity: 0.8;
-}
-
-.eval-name-row {
+.save-btn,
+.cancel-btn {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -4502,20 +4471,9 @@ textarea {
   transition: all 0.2s;
   flex-shrink: 0;
 }
-.btn-icon:hover {
-  color: var(--text-light);
-  opacity: 0.85;
-  background: rgba(255, 215, 0, 0.15);
-  transform: scale(1.08);
-}
 .btn-icon--delete {
   color: #fff;
   opacity: 1;
-}
-.btn-icon--delete:hover {
-  color: var(--track-red);
-  opacity: 0.8;
-  background: rgba(255, 75, 75, 0.18);
 }
 
 .skill-name {
@@ -4526,9 +4484,6 @@ textarea {
   cursor: pointer;
   padding: 0.25rem 0;
   transition: opacity 0.15s;
-}
-.skill-name:hover {
-  opacity: 0.7;
 }
 
 /* ── Skills section (eval edit) ───────────────────── */
@@ -4572,9 +4527,6 @@ textarea {
   margin-bottom: 0.3rem;
   transition: background 0.15s;
 }
-.skill-row:hover {
-  background: #a8dadc80;
-}
 
 .skill-row-actions {
   display: flex;
@@ -4587,10 +4539,6 @@ textarea {
   cursor: pointer;
   opacity: 0.45;
   transition: opacity 0.15s;
-}
-
-.skill-row-actions > *:hover {
-  opacity: 1;
 }
 .skill-input {
   flex: 1;
@@ -4673,9 +4621,6 @@ textarea {
   cursor: pointer;
   transition: background 0.15s;
 }
-.add-skill-btn:hover {
-  background: #a8dadc80;
-}
 
 .add-btn {
   /* background: none; */
@@ -4725,9 +4670,6 @@ textarea {
   justify-content: center;
   border-radius: 12px;
   transition: opacity 0.2s;
-}
-.export-btn:hover {
-  opacity: 0.6;
 }
 .export-btn:disabled {
   opacity: 0.3;
@@ -4984,9 +4926,6 @@ textarea {
   cursor: pointer;
   transition: opacity 0.15s;
 }
-.report-table .report-td-student--clickable:hover {
-  opacity: 0.7;
-}
 
 .report-student-detail {
   display: flex;
@@ -5039,10 +4978,6 @@ textarea {
   font-size: 0.85rem;
 }
 
-.report-detail-table tbody tr:hover {
-  background: rgba(38, 70, 83, 0.04);
-}
-
 .report-detail-table .stats-na {
   color: rgba(38, 70, 83, 0.25);
   font-weight: 400;
@@ -5081,13 +5016,6 @@ textarea {
 
   font-family: inherit;
 }
-.nav-circle:hover {
-  color: var(--text-light);
-  opacity: 0.85;
-  border-color: rgba(255, 200, 80, 0.4);
-  transform: scale(1.08);
-  background: rgba(40, 22, 4, 0.85);
-}
 .nav-circle--active {
   color: var(--text-light);
   opacity: 1;
@@ -5113,12 +5041,6 @@ textarea {
   color: var(--track-red);
   opacity: 0.75;
   border-color: rgba(255, 100, 80, 0.3);
-}
-.nav-circle--stop:hover {
-  color: var(--track-red);
-  opacity: 1;
-  border-color: rgba(255, 100, 80, 0.5);
-  background: rgba(255, 80, 60, 0.12);
 } /*
 ── Picker dropdowns (big popups) ──────────────────── */
 .picker-panel {
@@ -5194,10 +5116,6 @@ textarea {
   opacity: 0.55;
   cursor: pointer;
   transition: all 0.2s;
-}
-.header-btn:hover {
-  opacity: 0.85;
-  border-color: rgba(255, 255, 255, 0.6);
 }
 .header-btn.active {
   opacity: 1;
@@ -5328,10 +5246,6 @@ textarea {
   cursor: pointer;
   opacity: 0.4;
   transition: opacity 0.15s;
-}
-
-.nested-row-actions > *:hover {
-  opacity: 1;
 }
 
 /* ── Detail placeholder (student/skill sub-views) ── */
@@ -5494,10 +5408,6 @@ textarea {
   transition: all 0.2s;
   overflow: hidden;
 }
-.skill-icon-circle:hover {
-  background: #3a5e4e;
-  transform: scale(1.05);
-}
 .skill-icon-circle.picker-open {
   background: var(--stadium-yellow, #f1c40f);
   border-radius: 28px 28px 0 0;
@@ -5573,10 +5483,6 @@ textarea {
   cursor: pointer;
   padding: 4px;
   transition: all 0.15s;
-}
-.icon-picker-option:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
 }
 .icon-picker-option.selected {
   background: rgba(241, 196, 15, 0.2);
@@ -5795,10 +5701,6 @@ textarea {
   z-index: 10;
 }
 
-.close-modal-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 /* ── Two-column layout for classes ─────────────────── */
 .class-two-column-layout {
   display: flex;
@@ -5928,10 +5830,6 @@ textarea {
   &::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.3);
     border-radius: 3px;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.5);
-    }
   }
 
   /* Firefox scrollbar */
@@ -5958,11 +5856,6 @@ textarea {
 .class-item.selected,
 .student-item.selected {
   border-color: rgba(255, 255, 255, 1);
-  opacity: 1;
-}
-
-.class-item:hover,
-.student-item:hover {
   opacity: 1;
 }
 

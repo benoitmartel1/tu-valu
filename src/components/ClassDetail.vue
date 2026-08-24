@@ -687,12 +687,6 @@ const parsedEntries = computed(() => {
   opacity: 0.7;
   background: transparent;
 }
-.btn:hover {
-  color: var(--text-light);
-  opacity: 0.9;
-  background: rgba(255, 215, 0, 0.1);
-  border-color: rgba(255, 215, 0, 0.4);
-}
 
 .btn-save-class {
   margin-top: 0.5rem;
@@ -701,12 +695,6 @@ const parsedEntries = computed(() => {
   background: rgba(255, 215, 0, 0.1);
   color: var(--text-light);
   opacity: 0.8;
-}
-.btn-save-class:hover {
-  background: rgba(255, 215, 0, 0.25);
-  border-color: var(--stadium-yellow);
-  color: var(--text-light);
-  opacity: 1;
 }
 
 .btn-add-student {
@@ -724,9 +712,6 @@ const parsedEntries = computed(() => {
   cursor: pointer;
   transition: background 0.15s;
 }
-.btn-add-student:hover {
-  background: #a8dadc80;
-}
 
 .btn-icon {
   background: transparent;
@@ -742,12 +727,6 @@ const parsedEntries = computed(() => {
   transition: all 0.2s;
   flex-shrink: 0;
 }
-.btn-icon:hover {
-  color: var(--text-light);
-  opacity: 0.85;
-  background: rgba(255, 215, 0, 0.15);
-  transform: scale(1.08);
-}
 .btn-icon--confirm,
 .btn-icon--cancel {
   color: #fff;
@@ -757,11 +736,6 @@ const parsedEntries = computed(() => {
 .btn-icon--delete {
   color: #fff;
   opacity: 1;
-}
-.btn-icon--delete:hover {
-  color: var(--track-red);
-  opacity: 0.8;
-  background: rgba(255, 75, 75, 0.18);
 }
 
 /* ── Students list ──────────────────────────────────── */
@@ -788,9 +762,6 @@ const parsedEntries = computed(() => {
     background 0.15s,
     padding 0.2s ease;
 }
-.student-row:hover {
-  background: #a8dadc80;
-}
 .student-row.editing {
   background: none;
   padding: 10px 10px;
@@ -814,10 +785,6 @@ const parsedEntries = computed(() => {
   cursor: pointer;
   opacity: 0.45;
   transition: opacity 0.15s;
-}
-
-.student-row-actions > *:hover {
-  opacity: 1;
 }
 
 .students-empty {
@@ -933,22 +900,11 @@ const parsedEntries = computed(() => {
   color: #fff;
   background: transparent;
 }
-.btn-excel-confirm:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #fff;
-}
 
 .btn-excel-cancel {
   border-color: rgba(255, 200, 80, 0.15);
   color: var(--text-light);
   opacity: 0.55;
-}
-.btn-excel-cancel:hover {
-  background: rgba(255, 80, 60, 0.15);
-  border-color: rgba(255, 80, 60, 0.4);
-  color: var(--track-red);
-  opacity: 0.8;
 }
 
 /* ── Column mapping ─────────────────────────────────── */

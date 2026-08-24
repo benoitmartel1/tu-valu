@@ -256,11 +256,6 @@ input:focus {
     box-shadow 0.2s;
 }
 
-.submit-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
 .submit-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
