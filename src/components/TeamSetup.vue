@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from "vue";
 import { supabase } from "../supabase";
+import { Shuffle } from "@lucide/vue";
 
 const props = defineProps({
   students: {
@@ -141,6 +142,31 @@ function handleDrop(event, toTeamIndex) {
 
 function updateTeamName(teamIndex, newName) {
   generatedTeams.value[teamIndex].name = newName;
+}
+
+// Reshuffle teams with current settings (random assignment)
+async function reshuffleTeams() {
+  if (generatedTeams.value.length === 0) return;
+
+  // Save current team names
+  const teamNames = generatedTeams.value.map((t) => t.name);
+
+  // Temporarily set separation method to random
+  const originalMethod = separationMethod.value;
+  separationMethod.value = "random";
+
+  // Regenerate teams
+  await generateTeams();
+
+  // Restore original separation method
+  separationMethod.value = originalMethod;
+
+  // Restore team names
+  generatedTeams.value.forEach((team, index) => {
+    if (teamNames[index]) {
+      team.name = teamNames[index];
+    }
+  });
 }
 
 // Save teams to database
@@ -305,7 +331,14 @@ function cancel() {
 
         <!-- Action Buttons -->
         <div class="actions">
-          <button class="cancel-btn" @click="cancel">Annuler</button>
+          <button
+            class="reshuffle-btn"
+            :disabled="generatedTeams.length === 0"
+            @click="reshuffleTeams"
+            title="Mélanger les équipes"
+          >
+            <Shuffle :size="20" />
+          </button>
           <button
             class="apply-btn"
             :disabled="saving || generatedTeams.length === 0"
@@ -344,7 +377,7 @@ function cancel() {
                 class="team-name-input"
                 placeholder="Nom de l'équipe"
               />
-              <span class="team-count">{{ team.students.length }} élèves</span>
+              <span class="team-count">{{ team.students.length }}</span>
             </div>
 
             <div class="team-students">
@@ -509,7 +542,34 @@ function cancel() {
   margin-top: auto;
 }
 
-.cancel-btn,
+.reshuffle-btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 200, 80, 0.25);
+  background: transparent;
+  color: var(--text-light);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+}
+
+.reshuffle-btn:hover:not(:disabled) {
+  background: rgba(255, 200, 80, 0.15);
+  border-color: rgba(255, 200, 80, 0.5);
+  opacity: 1;
+}
+
+.reshuffle-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .apply-btn {
   flex: 1;
   padding: 0.75rem;
@@ -519,22 +579,6 @@ function cancel() {
   cursor: pointer;
   transition: all 0.2s;
   font-family: inherit;
-}
-
-.cancel-btn {
-  background: transparent;
-  border: 1.5px solid rgba(255, 200, 80, 0.25);
-  color: var(--text-light);
-  opacity: 0.7;
-}
-
-.cancel-btn:hover {
-  background: rgba(255, 80, 60, 0.2);
-  border-color: rgba(255, 100, 80, 0.5);
-  opacity: 0.8;
-}
-
-.apply-btn {
   background: #457b9d;
   border: none;
   color: var(--text-light);
@@ -554,7 +598,7 @@ function cancel() {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 1rem;
+  /* padding: 1rem; */
 }
 
 .empty-state {
@@ -572,20 +616,16 @@ function cancel() {
 .teams-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
+  gap: 0.5rem;
   align-content: start;
 }
 
 .team-card {
   background: rgba(20, 10, 2, 0.5);
-  border: 2px dashed rgba(255, 200, 80, 0.2);
+  /* border: 2px dashed rgba(255, 200, 80, 0.2); */
   border-radius: 16px;
   padding: 1rem;
   transition: border-color 0.2s;
-}
-
-.team-card:hover {
-  border-color: rgba(255, 200, 80, 0.4);
 }
 
 .team-header {
@@ -616,11 +656,12 @@ function cancel() {
 }
 
 .team-count {
-  font-size: 0.8rem;
+  font-size: 1rem;
   color: var(--text-light);
   opacity: 0.6;
   white-space: nowrap;
   font-weight: 600;
+  margin: 0 0.5rem;
 }
 
 .team-students {
@@ -636,7 +677,7 @@ function cancel() {
   background: #a8dadc42;
   border-radius: 999px;
   color: var(--text-light);
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 600;
   cursor: grab;
   transition: background 0.15s;
