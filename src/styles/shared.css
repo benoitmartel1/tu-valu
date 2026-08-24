@@ -3,17 +3,18 @@
 .student-pill,
 .student-bubble,
 .student-bubble-preview {
-  padding: 0.35rem 0.65rem;
+  overflow: hidden;
   border-radius: 999px;
   color: var(--text-light);
-  font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1.1rem;
   font-family: inherit;
   white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
+  padding: 8px 18px;
 }
 
 /* Draggable pills (TeamSetup) */
@@ -34,11 +35,7 @@
 /* Live session bubbles */
 .student-bubble,
 .student-bubble-preview {
-  overflow: hidden;
   transition: opacity 0.3s ease;
-  font-weight: 700;
-  font-size: 1.1rem;
-  padding: 8px 18px;
   background: #457b9d;
 }
 
