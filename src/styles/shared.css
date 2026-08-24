@@ -1,0 +1,47 @@
+/* Shared student pill/bubble styles */
+
+.student-pill,
+.student-bubble,
+.student-bubble-preview {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  color: var(--text-light);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Draggable pills (TeamSetup) */
+.student-pill {
+  cursor: grab;
+  transition: background 0.15s;
+  background: #a8dadc42;
+}
+
+.student-pill:hover {
+  background: #a8dadc80;
+}
+
+.student-pill:active {
+  cursor: grabbing;
+}
+
+/* Live session bubbles */
+.student-bubble,
+.student-bubble-preview {
+  overflow: hidden;
+  transition: opacity 0.3s ease;
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 8px 18px;
+  background: #457b9d;
+}
+
+.student-bubble {
+  pointer-events: none;
+}

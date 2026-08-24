@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
+import "../styles/shared.css";
 
 const props = defineProps({
   students: {
@@ -805,7 +806,7 @@ function getTeamColor(teamIndex) {
 
 .team-card {
   background: rgba(20, 10, 2, 0.1);
-  border: 2px solid rgba(255, 200, 80, 0.2);
+  /* border: 2px solid rgba(255, 200, 80, 0.2); */
   border-radius: 16px;
   padding: 1rem;
   transition: background-color 0.2s;
@@ -898,24 +899,5 @@ function getTeamColor(teamIndex) {
   align-content: flex-start;
 }
 
-.student-pill {
-  padding: 0.35rem 0.65rem;
-  background: #a8dadc42;
-  border-radius: 999px;
-  color: var(--text-light);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: grab;
-  transition: background 0.15s;
-  font-family: inherit;
-  white-space: nowrap;
-}
-
-.student-pill:hover {
-  background: #a8dadc80;
-}
-
-.student-pill:active {
-  cursor: grabbing;
 }
 </style>

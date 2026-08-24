@@ -38,6 +38,7 @@ const Sneaker = createLucideIcon("Sneaker", [
   ],
   ["path", { d: "M2 11c0 1.7 1.3 3 3 3h7" }],
 ]);
+import "../styles/shared.css";
 import ClassDetail from "./ClassDetail.vue";
 import TeamSetup from "./TeamSetup.vue";
 
@@ -4393,31 +4394,6 @@ textarea {
 }
 .student-wrapper.is-ghost {
   opacity: 0.25 !important;
-}
-
-/* ── Student bubble (label/pill) ──────────────────── */
-
-.student-bubble,
-.student-bubble-preview,
-.drag-clone {
-  /* width: 100px; */
-  /* aspect-ratio: 3; */
-  overflow: hidden;
-  border-radius: 999px;
-  /* border: 2px var(--text-light) solid; */
-  background: #457b9d;
-  color: var(--text-light);
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  text-align: center;
-  font-weight: 700;
-  font-size: 1.1rem;
-  /* line-height: 1.2; */
-  padding: 8px 18px;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-  white-space: nowrap;
 }
 
 /* ── Drag clone ───────────────────────────────────── */
