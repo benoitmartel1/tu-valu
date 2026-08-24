@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
 
@@ -14,7 +14,7 @@ const emit = defineEmits(["done", "cancel"]);
 
 // Team generation settings
 const teamMode = ref("count"); // 'count' (number of teams) or 'size' (students per team)
-const teamCount = ref(4);
+const teamCount = ref(3);
 const teamSize = ref(5);
 const separationMethod = ref("random"); // 'random', 'strength', 'gender'
 const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' (blend genders)
@@ -23,6 +23,13 @@ const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' 
 const generatedTeams = ref([]);
 const saving = ref(false);
 const error = ref(null);
+
+// Generate teams automatically on mount
+onMounted(() => {
+  if (props.students.length > 0) {
+    generateTeams();
+  }
+});
 
 // Calculate student strength based on existing evaluations
 async function calculateStudentStrength(studentId) {
@@ -386,7 +393,7 @@ function cancel() {
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">Méthode de séparation</label>
+          <label class="setting-label">Distribution</label>
           <div class="radio-group">
             <label class="radio-option">
               <input
@@ -442,10 +449,6 @@ function cancel() {
             </div>
           </div>
         </div>
-
-        <button class="generate-btn" @click="generateTeams">
-          Générer les équipes
-        </button>
 
         <!-- Error Message -->
         <p v-if="error" class="error">{{ error }}</p>
@@ -570,9 +573,9 @@ function cancel() {
 
 /* Sub-options for gender grouping */
 .sub-options {
-  /* margin-top: 0.75rem;
+  margin-top: 0.75rem;
   padding-left: 1rem;
-  border-left: 2px solid rgba(255, 200, 80, 0.2); */
+  border-left: 2px solid rgba(255, 200, 80, 0.2);
 }
 
 .sub-option-label {
@@ -648,24 +651,6 @@ function cancel() {
 .number-input input:focus {
   border-color: #e8a820;
   background: rgba(30, 16, 3, 0.7);
-}
-
-.generate-btn {
-  width: 100%;
-  padding: 0.75rem;
-  background: #457b9d;
-  color: var(--text-light);
-  border: none;
-  border-radius: 999px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  font-family: inherit;
-}
-
-.generate-btn:hover:not(:disabled) {
-  opacity: 0.9;
 }
 
 .error {
