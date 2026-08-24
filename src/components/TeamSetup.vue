@@ -213,238 +213,267 @@ function cancel() {
 </script>
 
 <template>
-  <div class="team-setup">
-    <h2>Créer des équipes</h2>
-
-    <!-- Settings Section -->
-    <div class="settings-section">
-      <div class="setting-group">
-        <label class="setting-label">Mode de création</label>
-        <div class="radio-group">
-          <label class="radio-option">
-            <input
-              type="radio"
-              v-model="teamMode"
-              value="count"
-              @change="generateTeams"
-            />
-            Nombre d'équipes
-          </label>
-          <label class="radio-option">
-            <input
-              type="radio"
-              v-model="teamMode"
-              value="size"
-              @change="generateTeams"
-            />
-            Taille des équipes
-          </label>
-        </div>
-
-        <div v-if="teamMode === 'count'" class="number-input">
-          <label>Nombre d'équipes:</label>
-          <input
-            type="number"
-            v-model.number="teamCount"
-            min="2"
-            :max="students.length"
-            @change="generateTeams"
-          />
-        </div>
-        <div v-else class="number-input">
-          <label>Élèves par équipe:</label>
-          <input
-            type="number"
-            v-model.number="teamSize"
-            min="2"
-            :max="students.length"
-            @change="generateTeams"
-          />
-        </div>
-      </div>
-
-      <div class="setting-group">
-        <label class="setting-label">Méthode de séparation</label>
-        <div class="radio-group">
-          <label class="radio-option">
-            <input
-              type="radio"
-              v-model="separationMethod"
-              value="random"
-              @change="generateTeams"
-            />
-            Aléatoire
-          </label>
-          <label class="radio-option">
-            <input
-              type="radio"
-              v-model="separationMethod"
-              value="strength"
-              @change="generateTeams"
-            />
-            Par niveau
-          </label>
-          <label class="radio-option">
-            <input
-              type="radio"
-              v-model="separationMethod"
-              value="gender"
-              @change="generateTeams"
-            />
-            Par genre
-          </label>
-        </div>
-      </div>
-
-      <button class="generate-btn" @click="generateTeams">
-        Générer les équipes
-      </button>
-    </div>
-
-    <!-- Preview Section -->
-    <div v-if="generatedTeams.length > 0" class="preview-section">
-      <h3>Aperçu des équipes</h3>
-      <p class="preview-hint">
-        Glissez-déposez les élèves pour réorganiser les équipes
-      </p>
-
-      <div class="teams-grid">
-        <div
-          v-for="(team, teamIndex) in generatedTeams"
-          :key="team.id"
-          class="team-card"
-          @dragover="handleDragOver"
-          @drop="handleDrop($event, teamIndex)"
-        >
-          <div class="team-header">
-            <input
-              v-model="team.name"
-              @input="updateTeamName(teamIndex, team.name)"
-              class="team-name-input"
-              placeholder="Nom de l'équipe"
-            />
-            <span class="team-count">{{ team.students.length }} élèves</span>
+  <div class="team-setup-container">
+    <!-- 2-Column Layout -->
+    <div class="team-setup-layout">
+      <!-- Left Column: Settings (1/3) -->
+      <div class="settings-column">
+        <div class="setting-group">
+          <label class="setting-label">Mode de création</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input
+                type="radio"
+                v-model="teamMode"
+                value="count"
+                @change="generateTeams"
+              />
+              Nombre d'équipes
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                v-model="teamMode"
+                value="size"
+                @change="generateTeams"
+              />
+              Taille des équipes
+            </label>
           </div>
 
-          <div class="team-students">
-            <div
-              v-for="student in team.students"
-              :key="student.id"
-              class="student-pill"
-              draggable="true"
-              @dragstart="handleDragStart($event, student, teamIndex)"
-            >
-              {{ student.firstname }} {{ student.lastname }}
+          <div v-if="teamMode === 'count'" class="number-input">
+            <label>Nombre d'équipes:</label>
+            <input
+              type="number"
+              v-model.number="teamCount"
+              min="2"
+              :max="students.length"
+              @change="generateTeams"
+            />
+          </div>
+          <div v-else class="number-input">
+            <label>Élèves par équipe:</label>
+            <input
+              type="number"
+              v-model.number="teamSize"
+              min="2"
+              :max="students.length"
+              @change="generateTeams"
+            />
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Méthode de séparation</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input
+                type="radio"
+                v-model="separationMethod"
+                value="random"
+                @change="generateTeams"
+              />
+              Aléatoire
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                v-model="separationMethod"
+                value="strength"
+                @change="generateTeams"
+              />
+              Par niveau
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                v-model="separationMethod"
+                value="gender"
+                @change="generateTeams"
+              />
+              Par genre
+            </label>
+          </div>
+        </div>
+
+        <button class="generate-btn" @click="generateTeams">
+          Générer les équipes
+        </button>
+
+        <!-- Error Message -->
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <!-- Action Buttons -->
+        <div class="actions">
+          <button class="cancel-btn" @click="cancel">Annuler</button>
+          <button
+            class="apply-btn"
+            :disabled="saving || generatedTeams.length === 0"
+            @click="applyTeams"
+          >
+            {{ saving ? "Enregistrement..." : "Appliquer" }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Column: Teams Preview (2/3) -->
+      <div class="teams-column">
+        <!-- Empty State -->
+        <div v-if="students.length === 0" class="empty-state">
+          <p>
+            Aucun élève disponible. Ajoutez des élèves à une classe d'abord.
+          </p>
+        </div>
+        <div v-else-if="generatedTeams.length === 0" class="empty-state">
+          <p>Cliquez sur "Générer les équipes" pour créer les équipes.</p>
+        </div>
+
+        <!-- Teams Grid -->
+        <div v-else class="teams-grid">
+          <div
+            v-for="(team, teamIndex) in generatedTeams"
+            :key="team.id"
+            class="team-card"
+            @dragover="handleDragOver"
+            @drop="handleDrop($event, teamIndex)"
+          >
+            <div class="team-header">
+              <input
+                v-model="team.name"
+                @input="updateTeamName(teamIndex, team.name)"
+                class="team-name-input"
+                placeholder="Nom de l'équipe"
+              />
+              <span class="team-count">{{ team.students.length }} élèves</span>
+            </div>
+
+            <div class="team-students">
+              <div
+                v-for="student in team.students"
+                :key="student.id"
+                class="student-pill"
+                draggable="true"
+                @dragstart="handleDragStart($event, student, teamIndex)"
+              >
+                {{ student.firstname }} {{ student.lastname }}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- Empty State -->
-    <div v-else-if="students.length === 0" class="empty-state">
-      <p>Aucun élève disponible. Ajoutez des élèves à une classe d'abord.</p>
-    </div>
-    <div v-else class="empty-state">
-      <p>Cliquez sur "Générer les équipes" pour créer les équipes.</p>
-    </div>
-
-    <!-- Error Message -->
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <!-- Action Buttons -->
-    <div class="actions">
-      <button class="cancel-btn" @click="cancel">Annuler</button>
-      <button
-        class="apply-btn"
-        :disabled="saving || generatedTeams.length === 0"
-        @click="applyTeams"
-      >
-        {{ saving ? "Enregistrement..." : "Appliquer les équipes" }}
-      </button>
-    </div>
   </div>
 </template>
 
 <style scoped>
-.team-setup {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  font-family: sans-serif;
+.team-setup-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-h2 {
-  margin-bottom: 1.5rem;
-  font-size: 1.4rem;
-  color: var(--text-light);
+/* 2-Column Layout */
+.team-setup-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 1.5rem;
+  height: 100%;
+  overflow: hidden;
 }
 
-h3 {
-  margin-bottom: 0.75rem;
-  font-size: 1.1rem;
-  color: var(--text-light);
-}
-
-/* Settings Section */
-.settings-section {
+/* Left Column: Settings */
+.settings-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem;
   background: rgba(20, 10, 2, 0.4);
-  border-radius: 12px;
-  padding: 1.25rem;
-  margin-bottom: 1.5rem;
+  border-radius: 16px;
+  overflow-y: auto;
 }
 
 .setting-group {
-  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .setting-label {
-  display: block;
-  font-weight: 600;
+  font-size: 0.85rem;
+  font-weight: 700;
   color: var(--text-light);
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .radio-group {
   display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .radio-option {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--text-light);
+  opacity: 0.7;
   cursor: pointer;
-  font-size: 0.9rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.15s;
+}
+
+.radio-option:hover {
+  opacity: 0.9;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .radio-option input[type="radio"] {
-  cursor: pointer;
+  display: none;
+}
+
+.radio-option:has(input:checked) {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .number-input {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .number-input label {
   color: var(--text-light);
   font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .number-input input {
   width: 80px;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 200, 80, 0.3);
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 200, 80, 0.2);
   background: rgba(20, 10, 2, 0.6);
   color: var(--text-light);
-  font-size: 0.9rem;
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.number-input input:focus {
+  border-color: #e8a820;
+  background: rgba(30, 16, 3, 0.7);
 }
 
 .generate-btn {
@@ -453,40 +482,104 @@ h3 {
   background: #457b9d;
   color: var(--text-light);
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.2s;
+  font-family: inherit;
 }
 
-.generate-btn:hover {
+.generate-btn:hover:not(:disabled) {
   opacity: 0.9;
 }
 
-/* Preview Section */
-.preview-section {
-  margin-bottom: 1.5rem;
+.error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
-.preview-hint {
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+.cancel-btn,
+.apply-btn {
+  flex: 1;
+  padding: 0.75rem;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1.5px solid rgba(255, 200, 80, 0.25);
+  color: var(--text-light);
+  opacity: 0.7;
+}
+
+.cancel-btn:hover {
+  background: rgba(255, 80, 60, 0.2);
+  border-color: rgba(255, 100, 80, 0.5);
+  opacity: 0.8;
+}
+
+.apply-btn {
+  background: #457b9d;
+  border: none;
+  color: var(--text-light);
+}
+
+.apply-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Right Column: Teams */
+.teams-column {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
   color: var(--text-light);
   opacity: 0.6;
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
   font-style: italic;
+  font-size: 1.1rem;
 }
 
 .teams-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
+  align-content: start;
 }
 
 .team-card {
   background: rgba(20, 10, 2, 0.5);
   border: 2px dashed rgba(255, 200, 80, 0.2);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 1rem;
   transition: border-color 0.2s;
 }
@@ -505,13 +598,21 @@ h3 {
 
 .team-name-input {
   flex: 1;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 200, 80, 0.3);
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 200, 80, 0.2);
   background: rgba(20, 10, 2, 0.6);
   color: var(--text-light);
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 600;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.team-name-input:focus {
+  border-color: #e8a820;
+  background: rgba(30, 16, 3, 0.7);
 }
 
 .team-count {
@@ -519,6 +620,7 @@ h3 {
   color: var(--text-light);
   opacity: 0.6;
   white-space: nowrap;
+  font-weight: 600;
 }
 
 .team-students {
@@ -533,10 +635,11 @@ h3 {
   background: #a8dadc42;
   border-radius: 999px;
   color: var(--text-light);
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
   cursor: grab;
   transition: background 0.15s;
+  font-family: inherit;
 }
 
 .student-pill:hover {
@@ -545,68 +648,5 @@ h3 {
 
 .student-pill:active {
   cursor: grabbing;
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-light);
-  opacity: 0.6;
-  font-style: italic;
-}
-
-/* Error */
-.error {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  padding: 0.75rem;
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-}
-
-/* Actions */
-.actions {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.cancel-btn,
-.apply-btn {
-  flex: 1;
-  padding: 0.75rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.cancel-btn {
-  background: transparent;
-  border: 1.5px solid rgba(255, 200, 80, 0.25);
-  color: var(--text-light);
-}
-
-.cancel-btn:hover {
-  background: rgba(255, 80, 60, 0.2);
-  border-color: rgba(255, 100, 80, 0.5);
-}
-
-.apply-btn {
-  background: #457b9d;
-  border: none;
-  color: var(--text-light);
-}
-
-.apply-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.apply-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>
