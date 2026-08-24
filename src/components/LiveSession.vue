@@ -48,11 +48,22 @@ const selectedClassId = ref(null);
 const loading = ref(false);
 
 // ── Picker state ──────────────────────────────────────
-const classModalOpen = ref(false);
 const classModalTab = ref("select"); // 'select' | 'edit'
-const evalModalOpen = ref(false);
 const evalModalTab = ref("select"); // 'select' | 'edit'
-const teamModalOpen = ref(false);
+
+// Single variable to track which modal is open: 'class', 'eval', 'report', 'teams', or null
+const activeModal = ref(null);
+
+// Helper functions to check if a specific modal is open
+const isClassModalOpen = computed(() => activeModal.value === "class");
+const isEvalModalOpen = computed(() => activeModal.value === "eval");
+const isReportModalOpen = computed(() => activeModal.value === "report");
+const isTeamModalOpen = computed(() => activeModal.value === "teams");
+
+// Unified function to toggle modals
+function toggleModal(modalName) {
+  activeModal.value = activeModal.value === modalName ? null : modalName;
+}
 
 // ── Teams state ───────────────────────────────────────
 const teams = ref([]); // All teams from database
@@ -294,19 +305,11 @@ async function loadTeams() {
 }
 
 function openTeamModal() {
-  if (teamModalOpen.value) {
-    teamModalOpen.value = false;
-    return;
-  }
-  // Close other modals
-  classModalOpen.value = false;
-  evalModalOpen.value = false;
-  reportModalOpen.value = false;
-  teamModalOpen.value = true;
+  toggleModal("teams");
 }
 
 function onTeamsCreated(newTeams) {
-  teamModalOpen.value = false;
+  activeModal.value = null;
   teamsActive.value = true;
   loadTeams(); // Reload teams from database
 }
@@ -344,19 +347,13 @@ onMounted(async () => {
 
 async function selectClass(id) {
   selectedClassId.value = id;
-  classModalOpen.value = false;
+  activeModal.value = null;
   if (hasEvalSelection.value) startSession();
 }
 
 function openClassModal() {
-  if (classModalOpen.value) {
-    classModalOpen.value = false;
-    return;
-  }
-  evalModalOpen.value = false;
-  reportModalOpen.value = false;
+  toggleModal("class");
   classDetailId.value = null;
-  classModalOpen.value = true;
   classModalTab.value = "select";
   cancelClassEdit();
 }
@@ -454,19 +451,13 @@ function clearEvalSelection() {
 
 function selectEval(id) {
   toggleChecked(id, "eval");
-  evalModalOpen.value = false;
+  activeModal.value = null;
   if (hasStudentSelection.value) startSession();
 }
 
 function openEvalModal() {
-  if (evalModalOpen.value) {
-    evalModalOpen.value = false;
-    return;
-  }
-  classModalOpen.value = false;
-  reportModalOpen.value = false;
+  toggleModal("eval");
   classDetailId.value = null;
-  evalModalOpen.value = true;
   evalModalTab.value = "select";
   if (!editingEvalId.value && !isAddingNewEval.value) {
     cancelEvalEdit();
@@ -1160,7 +1151,7 @@ function onDragEnd() {
           eventId: data.id,
         });
         // Refresh report data if the report modal is open
-        if (reportModalOpen.value) {
+        if (activeModal.value === 'report') {
           loadReportData();
         }
       })
@@ -1902,18 +1893,17 @@ const skillDetailName = computed(() => {
 const actionHistory = ref([]); // { studentId, skillId, level, eventId }[]
 
 // ── Report state ──────────────────────────────────────
-const reportModalOpen = ref(false);
 
 // ── Live preview animation ────────────────────────────
 const liveAnimating = ref(false);
 
 watch(
-  () => [classModalOpen.value, evalModalOpen.value, reportModalOpen.value],
-  ([curClass, curEval, curReport], [prevClass, prevEval, prevReport]) => {
+  () => [isClassModalOpen.value, isEvalModalOpen.value, isReportModalOpen.value, isTeamModalOpen.value],
+  ([curClass, curEval, curReport, curTeams], [prevClass, prevEval, prevReport, prevTeams]) => {
     // Re-trigger enter animation when any modal closes
     if (
-      (prevClass || prevEval || prevReport) &&
-      !(curClass || curEval || curReport)
+      (prevClass || prevEval || prevReport || prevTeams) &&
+      !(curClass || curEval || curReport || curTeams)
     ) {
       liveAnimating.value = true;
       setTimeout(() => {
@@ -2038,16 +2028,13 @@ async function loadReportData() {
 }
 
 async function openReport() {
-  if (reportModalOpen.value) {
-    reportModalOpen.value = false;
+  if (activeModal.value === "report") {
+    activeModal.value = null;
     return;
   }
   if (!hasStudentSelection.value || !hasEvalSelection.value) return;
-  // Close any other open modal first
-  classModalOpen.value = false;
-  evalModalOpen.value = false;
-  reportLoading.value = true;
-  reportModalOpen.value = true;
+
+  toggleModal("report");
   selectedSessionId.value = null; // reset filter
 
   try {
@@ -2371,7 +2358,7 @@ defineExpose({
           class="fab"
           :class="{
             'fab--filled': hasStudentSelection,
-            'fab--modal-open': classModalOpen,
+            'fab--modal-open': isClassModalOpen,
           }"
           title="Classes"
           @click="openClassModal()"
@@ -2388,7 +2375,7 @@ defineExpose({
           class="fab fab--eval"
           :class="{
             'fab--filled': hasEvalSelection,
-            'fab--modal-open': evalModalOpen,
+            'fab--modal-open': isEvalModalOpen,
           }"
           title="Évaluations"
           @click="openEvalModal()"
@@ -2399,7 +2386,7 @@ defineExpose({
         <!-- Report button -->
         <button
           class="fab"
-          :class="{ 'fab--modal-report': reportModalOpen }"
+          :class="{ 'fab--modal-report': isReportModalOpen }"
           :disabled="!hasStudentSelection || !hasEvalSelection"
           title="Rapport"
           @click="openReport"
@@ -2410,7 +2397,7 @@ defineExpose({
         <!-- Teams button -->
         <button
           class="fab fab--teams"
-          :class="{ 'fab--modal-open': teamModalOpen }"
+          :class="{ 'fab--modal-open': isTeamModalOpen }"
           :disabled="currentStudents.length === 0"
           title="Équipes"
           @click="openTeamModal"
@@ -2531,13 +2518,13 @@ defineExpose({
       <!-- MODAL OVERLAY (top layer) -->
       <div
         v-show="
-          classModalOpen || evalModalOpen || reportModalOpen || teamModalOpen
+          isClassModalOpen || isEvalModalOpen || isReportModalOpen || isTeamModalOpen
         "
         class="picker-screen picker-screen--modal"
       >
         <Transition name="panel-drawer" mode="out-in">
           <div
-            v-if="classModalOpen"
+            v-if="isClassModalOpen"
             key="class"
             class="picker-panel class-modal picker-panel--full class-modal--bg"
           >
@@ -2546,7 +2533,7 @@ defineExpose({
               <button
                 v-if="studentDetailId === null"
                 class="close-modal-btn"
-                @click="classModalOpen = false"
+                @click="toggleModal('class')"
               >
                 <ChevronUp :size="36" :stroke-width="3" />
               </button>
@@ -2794,7 +2781,7 @@ defineExpose({
 
           <!-- Evaluation modal -->
           <div
-            v-else-if="evalModalOpen"
+            v-else-if="isEvalModalOpen"
             key="eval"
             class="picker-panel class-modal picker-panel--full eval-bg"
           >
@@ -2803,7 +2790,7 @@ defineExpose({
               <button
                 v-if="skillDetailId === null && editingEvalId === null"
                 class="close-modal-btn"
-                @click="evalModalOpen = false"
+                @click="toggleModal('eval')"
               >
                 <ChevronUp :size="36" :stroke-width="3" />
               </button>
@@ -3128,7 +3115,7 @@ defineExpose({
 
           <!-- Report modal -->
           <div
-            v-else-if="reportModalOpen"
+            v-else-if="isReportModalOpen"
             key="report"
             class="picker-panel report-modal picker-panel--full"
           >
@@ -3157,7 +3144,7 @@ defineExpose({
                 >
                   <Download :size="22" />
                 </button>
-                <button class="close-btn" @click="reportModalOpen = false">
+                <button class="close-btn" @click="toggleModal('report')">
                   <ChevronUp :size="36" :stroke-width="3" />
                 </button>
               </div>
@@ -3478,11 +3465,11 @@ defineExpose({
 
           <!-- Teams modal -->
           <div
-            v-else-if="teamModalOpen"
+            v-else-if="isTeamModalOpen"
             key="teams"
             class="picker-panel class-modal picker-panel--full team-modal-bg"
           >
-            <button class="close-modal-btn" @click="teamModalOpen = false">
+            <button class="close-modal-btn" @click="toggleModal('teams')">
               <ChevronUp :size="36" :stroke-width="3" />
             </button>
 
@@ -3490,7 +3477,7 @@ defineExpose({
               <TeamSetup
                 :students="currentStudents"
                 @done="onTeamsCreated"
-                @cancel="teamModalOpen = false"
+                @cancel="toggleModal('teams')"
               />
             </div>
           </div>
