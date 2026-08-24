@@ -19,18 +19,18 @@ const teamSize = ref(5);
 const separationMethod = ref("random"); // 'random', 'strength', 'gender'
 const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' (blend genders)
 
-// Team colors palette
+// Team colors palette - basic sports jersey colors
 const teamColors = [
-  "#FF6B6B", // Red
-  "#4ECDC4", // Teal
-  "#FFE66D", // Yellow
-  "#95E1D3", // Mint
-  "#F38181", // Coral
-  "#AA96DA", // Purple
-  "#FCBAD3", // Pink
-  "#A8E6CF", // Light Green
-  "#FFD93D", // Gold
-  "#6BCB77", // Green
+  "#FF0000", // Red
+  "#0066CC", // Blue
+  "#00AA00", // Green
+  "#FFD700", // Yellow/Gold
+  "#FF8C00", // Orange
+  "#9932CC", // Purple
+  "#FFFFFF", // White
+  "#FF69B4", // Pink
+  "#00CED1", // Cyan/Turquoise
+  "#8B0000", // Dark Red/Maroon
 ];
 
 // Generated teams preview
@@ -525,16 +525,11 @@ function getTeamColor(teamIndex) {
             v-for="(team, teamIndex) in generatedTeams"
             :key="team.id"
             class="team-card"
+            :style="{ borderColor: getTeamColor(teamIndex) }"
             @dragover="handleDragOver"
             @drop="handleDrop($event, teamIndex)"
           >
             <div class="team-header">
-              <input
-                v-model="team.name"
-                @input="updateTeamName(teamIndex, team.name)"
-                class="team-name-input"
-                placeholder="Nom de l'équipe"
-              />
               <!-- Color picker circle -->
               <div
                 class="color-picker-circle"
@@ -542,6 +537,13 @@ function getTeamColor(teamIndex) {
                 @click="toggleColorPicker(teamIndex)"
                 title="Changer la couleur"
               ></div>
+              <input
+                v-model="team.name"
+                @input="updateTeamName(teamIndex, team.name)"
+                class="team-name-input"
+                placeholder="Nom de l'équipe"
+              />
+
               <!-- Color picker dropdown -->
               <div
                 v-if="showColorPicker === teamIndex"
@@ -802,8 +804,8 @@ function getTeamColor(teamIndex) {
 }
 
 .team-card {
-  background: rgba(20, 10, 2, 0.5);
-  /* border: 2px dashed rgba(255, 200, 80, 0.2); */
+  background: rgba(20, 10, 2, 0.2);
+  border: 3px solid rgba(255, 200, 80, 0.2);
   border-radius: 16px;
   padding: 1rem;
   transition: border-color 0.2s;
@@ -823,16 +825,7 @@ function getTeamColor(teamIndex) {
   height: 24px;
   border-radius: 50%;
   cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  transition:
-    transform 0.2s,
-    border-color 0.2s;
   flex-shrink: 0;
-}
-
-.color-picker-circle:hover {
-  transform: scale(1.1);
-  border-color: rgba(255, 255, 255, 0.6);
 }
 
 .color-picker-dropdown {

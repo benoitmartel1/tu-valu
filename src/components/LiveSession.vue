@@ -73,16 +73,16 @@ const studentTeamMap = ref({}); // { studentId: teamId }
 
 // Team colors palette
 const teamColors = [
-  "#FF6B6B", // Red
-  "#4ECDC4", // Teal
-  "#FFE66D", // Yellow
-  "#95E1D3", // Mint
-  "#F38181", // Coral
-  "#AA96DA", // Purple
-  "#FCBAD3", // Pink
-  "#A8D8EA", // Light Blue
-  "#FFD93D", // Gold
-  "#6BCB77", // Green
+  "#FF0000", // Red
+  "#0066CC", // Blue
+  "#00AA00", // Green
+  "#FFD700", // Yellow/Gold
+  "#FF8C00", // Orange
+  "#9932CC", // Purple
+  "#FFFFFF", // White
+  "#FF69B4", // Pink
+  "#00CED1", // Cyan/Turquoise
+  "#8B0000", // Dark Red/Maroon
 ];
 
 function getTeamColor(teamId) {
