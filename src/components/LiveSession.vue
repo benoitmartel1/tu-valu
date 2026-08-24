@@ -2393,7 +2393,13 @@ defineExpose({
           title="Évaluations"
           @click="openEvalModal()"
         >
-          <Sneaker :size="20" />
+          <template v-if="hasEvalSelection">
+            <Sneaker :size="20" />
+            <span class="fab-selected-name">{{ evalSelectionSummary }}</span>
+          </template>
+          <template v-else>
+            <Sneaker :size="20" />
+          </template>
         </button>
 
         <!-- Report button -->
