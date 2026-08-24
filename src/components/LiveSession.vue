@@ -2395,7 +2395,7 @@ defineExpose({
         >
           <template v-if="hasEvalSelection">
             <Sneaker :size="20" />
-            <span class="fab-selected-name">{{ checkedSkillIds.value.size }}</span>
+            <span class="fab-selected-name">{{ checkedSkillIds.size }}</span>
           </template>
           <template v-else>
             <Sneaker :size="20" />
