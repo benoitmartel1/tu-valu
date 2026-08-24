@@ -199,7 +199,7 @@ const currentStudents = computed(() => {
   const excluded = excludedStudentIds.value;
 
   // Filter allStudents based on checked classes/students, exclusions, gender, and team
-  return allStudents.value
+  let filtered = allStudents.value
     .filter((s) => {
       // Check if student is in a checked class
       const isInCheckedClass = checkedClassIds.value.has(s.class_id);
@@ -228,10 +228,44 @@ const currentStudents = computed(() => {
         matchesGender &&
         matchesTeam
       );
-    })
-    .sort((a, b) =>
+    });
+
+  // Sort based on sortBy preference
+  if (sortBy.value === 'team' && teamsActive.value) {
+    // Sort by team first, then by firstname within each team
+    filtered.sort((a, b) => {
+      const teamA = studentTeamMap.value[a.id];
+      const teamB = studentTeamMap.value[b.id];
+      
+      // Students without teams go to the end
+      if (!teamA && !teamB) return (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
+      if (!teamA) return 1;
+      if (!teamB) return -1;
+      
+      // Compare team names
+      const teamObjA = teams.value.find(t => t.id === teamA);
+      const teamObjB = teams.value.find(t => t.id === teamB);
+      const teamNameA = teamObjA?.name || '';
+      const teamNameB = teamObjB?.name || '';
+      
+      const teamCompare = teamNameA.localeCompare(teamNameB, "fr-FR");
+      if (teamCompare !== 0) return teamCompare;
+      
+      // Within same team, sort by firstname
+      return (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
+    });
+  } else if (sortBy.value === 'lastname') {
+    filtered.sort((a, b) =>
+      (a.lastname || "").localeCompare(b.lastname || "", "fr-FR"),
+    );
+  } else {
+    // Default: sort by firstname
+    filtered.sort((a, b) =>
       (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
     );
+  }
+
+  return filtered;
 });
 
 // Current evaluations/skills to display
@@ -293,7 +327,7 @@ async function loadTeams() {
     .from("tu_teams")
     .select("*")
     .order("created_at", { ascending: false });
-    
+
   if (!teamsData || teamsData.length === 0) {
     teams.value = [];
     studentTeamMap.value = {};
@@ -302,7 +336,7 @@ async function loadTeams() {
 
   // Get the most recent team creation timestamp
   const latestTimestamp = teamsData[0].created_at;
-  
+
   // Filter to only include teams created at the same time (same batch)
   // Teams created together will have very similar timestamps (within 1 second)
   const latestTeams = teamsData.filter((team) => {
@@ -3575,6 +3609,19 @@ defineExpose({
                   v-model="sortBy"
                 />
                 Nom
+              </label>
+              <label
+                class="filter-option"
+                :class="{ active: sortBy === 'team' }"
+                v-if="teamsActive && teams.length > 0"
+              >
+                <input
+                  type="radio"
+                  name="sortBy"
+                  value="team"
+                  v-model="sortBy"
+                />
+                Équipe
               </label>
             </div>
           </div>
