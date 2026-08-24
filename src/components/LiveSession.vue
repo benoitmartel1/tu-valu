@@ -305,6 +305,13 @@ function openTeamModal() {
   teamModalOpen.value = true;
 }
 
+function handleModalBackdropClick() {
+  // Close teams modal when clicking on backdrop
+  if (teamModalOpen.value) {
+    teamModalOpen.value = false;
+  }
+}
+
 function onTeamsCreated(newTeams) {
   teamModalOpen.value = false;
   teamsActive.value = true;
@@ -2393,13 +2400,7 @@ defineExpose({
           title="Évaluations"
           @click="openEvalModal()"
         >
-          <template v-if="hasEvalSelection">
-            <Sneaker :size="20" />
-            <span class="fab-selected-name">{{ evalSelectionSummary }}</span>
-          </template>
-          <template v-else>
-            <Sneaker :size="20" />
-          </template>
+          <Sneaker :size="20" />
         </button>
 
         <!-- Report button -->
@@ -2421,7 +2422,7 @@ defineExpose({
           title="Équipes"
           @click="openTeamModal"
         >
-          <Users :size="20" />
+          <Users :size="24" />
         </button>
       </div>
       <div class="top-bar-spacer"></div>
@@ -2540,6 +2541,7 @@ defineExpose({
           classModalOpen || evalModalOpen || reportModalOpen || teamModalOpen
         "
         class="picker-screen picker-screen--modal"
+        @click.self="handleModalBackdropClick"
       >
         <Transition name="panel-drawer" mode="out-in">
           <div
@@ -3816,14 +3818,15 @@ textarea {
 
 .top-bar-center {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 /* ── Menu buttons ──────────────────────────────────── */
 .fab {
+  width: 100px;
   border: 2px solid transparent;
-  border-radius: 18px 18px 0 0;
+  border-radius: 18px;
   padding: 0.8rem 2rem;
   margin-bottom: 3px;
   color: var(--text-light);
@@ -3855,6 +3858,8 @@ textarea {
   border-radius: 18px 18px 0 0;
   border-bottom: none;
   margin-bottom: 0;
+
+  padding-bottom: calc(3px + 0.8rem);
   background: #457b9d;
   border-color: #457b9d;
   color: var(--text-light);
