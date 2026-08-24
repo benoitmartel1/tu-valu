@@ -288,16 +288,38 @@ async function loadAllData() {
 
 // ── Teams functions ───────────────────────────────────
 async function loadTeams() {
+  // Load all teams ordered by creation date (newest first)
   const { data: teamsData } = await supabase
     .from("tu_teams")
     .select("*")
-    .order("name");
-  teams.value = teamsData || [];
+    .order("created_at", { ascending: false });
+    
+  if (!teamsData || teamsData.length === 0) {
+    teams.value = [];
+    studentTeamMap.value = {};
+    return;
+  }
 
-  // Load student-team relationships
+  // Get the most recent team creation timestamp
+  const latestTimestamp = teamsData[0].created_at;
+  
+  // Filter to only include teams created at the same time (same batch)
+  // Teams created together will have very similar timestamps (within 1 second)
+  const latestTeams = teamsData.filter((team) => {
+    const teamTime = new Date(team.created_at).getTime();
+    const latestTime = new Date(latestTimestamp).getTime();
+    // Consider teams created within 2 seconds of each other as part of the same batch
+    return Math.abs(teamTime - latestTime) < 2000;
+  });
+
+  teams.value = latestTeams;
+
+  // Load student-team relationships for latest teams only
+  const latestTeamIds = latestTeams.map((t) => t.id);
   const { data: relationships } = await supabase
     .from("tu_student_teams")
-    .select("student_id, team_id");
+    .select("student_id, team_id")
+    .in("team_id", latestTeamIds);
 
   // Build student to team map
   const map = {};
