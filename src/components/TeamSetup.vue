@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
+import RangeInput from "./RangeInput.vue";
 import "../styles/shared.css";
 
 const props = defineProps({
@@ -406,22 +407,20 @@ function getTeamColor(teamIndex) {
           </div>
 
           <div v-if="teamMode === 'count'" class="number-input">
-            <label>Nombre d'équipes:</label>
-            <input
-              type="number"
-              v-model.number="teamCount"
-              min="2"
+            <RangeInput
+              v-model:value="teamCount"
+              :min="2"
               :max="students.length"
+              label="Nombre d'équipes:"
               @change="generateTeams"
             />
           </div>
           <div v-else class="number-input">
-            <label>Élèves par équipe:</label>
-            <input
-              type="number"
-              v-model.number="teamSize"
-              min="2"
+            <RangeInput
+              v-model:value="teamSize"
+              :min="2"
               :max="students.length"
+              label="Élèves par équipe:"
               @change="generateTeams"
             />
           </div>
@@ -692,7 +691,34 @@ function getTeamColor(teamIndex) {
   opacity: 0.8;
 }
 
-.number-input input {
+.custom-number-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.number-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+}
+
+.number-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.number-input-field {
   width: 80px;
   padding: 0.5rem 0.75rem;
   border-radius: 999px;
@@ -703,6 +729,14 @@ function getTeamColor(teamIndex) {
   font-family: inherit;
   outline: none;
   transition: all 0.2s;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.number-input-field::-webkit-outer-spin-button,
+.number-input-field::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .number-input input:focus {
@@ -794,12 +828,13 @@ function getTeamColor(teamIndex) {
 }
 
 .team-card {
+  background: #5f5f5f;
   /* background: rgba(20, 10, 2, 0.1); */
   /* border: 2px solid rgba(255, 200, 80, 0.2); */
   border-radius: 16px;
   padding: 1rem;
   transition: background-color 0.2s;
-  border: 2px solid rgba(167, 165, 164, 0.4);
+  /* border: 2px solid rgba(167, 165, 164, 1); */
 }
 
 .team-header {

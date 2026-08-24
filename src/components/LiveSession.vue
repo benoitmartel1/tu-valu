@@ -41,6 +41,7 @@ const Sneaker = createLucideIcon("Sneaker", [
 import "../styles/shared.css";
 import ClassDetail from "./ClassDetail.vue";
 import TeamSetup from "./TeamSetup.vue";
+import RangeInput from "./RangeInput.vue";
 
 // ── Setup state ───────────────────────────────────────
 const classes = ref([]);
@@ -3058,37 +3059,28 @@ defineExpose({
                         <div class="detail-section">
                           <label class="detail-label">Échelle</label>
                           <div class="skill-range-config">
-                            <label>
-                              Min
-                              <input
-                                v-model.number="editingNewSkillMin"
-                                type="number"
-                                class="range-input"
-                                min="0"
-                                @blur="updateScaleFromInputs"
-                              />
-                            </label>
-                            <label>
-                              Max
-                              <input
-                                v-model.number="editingNewSkillMax"
-                                type="number"
-                                class="range-input"
-                                min="0"
-                                @blur="updateScaleFromInputs"
-                              />
-                            </label>
-                            <label>
-                              Pas
-                              <input
-                                v-model.number="editingNewSkillStep"
-                                type="number"
-                                class="range-input"
-                                min="0.1"
-                                step="0.1"
-                                @blur="updateScaleFromInputs"
-                              />
-                            </label>
+                            <RangeInput
+                              v-model:value="editingNewSkillMin"
+                              :min="0"
+                              label="Min"
+                              size="small"
+                              @change="updateScaleFromInputs"
+                            />
+                            <RangeInput
+                              v-model:value="editingNewSkillMax"
+                              :min="editingNewSkillMin + editingNewSkillStep"
+                              label="Max"
+                              size="small"
+                              @change="updateScaleFromInputs"
+                            />
+                            <RangeInput
+                              v-model:value="editingNewSkillStep"
+                              :min="0.1"
+                              :step="0.1"
+                              label="Pas"
+                              size="small"
+                              @change="updateScaleFromInputs"
+                            />
                           </div>
                         </div>
                       </div>
