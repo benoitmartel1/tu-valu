@@ -743,12 +743,6 @@ function getTeamColor(teamIndex) {
   font-family: inherit;
 }
 
-.reshuffle-btn:hover:not(:disabled) {
-  background: rgba(255, 200, 80, 0.15);
-  border-color: rgba(255, 200, 80, 0.5);
-  opacity: 1;
-}
-
 .reshuffle-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
@@ -766,10 +760,6 @@ function getTeamColor(teamIndex) {
   background: #457b9d;
   border: none;
   color: var(--text-light);
-}
-
-.apply-btn:hover:not(:disabled) {
-  opacity: 0.9;
 }
 
 .apply-btn:disabled {
@@ -810,6 +800,7 @@ function getTeamColor(teamIndex) {
   border-radius: 16px;
   padding: 1rem;
   transition: background-color 0.2s;
+  border: 2px solid rgba(167, 165, 164, 0.4);
 }
 
 .team-header {
@@ -853,14 +844,6 @@ function getTeamColor(teamIndex) {
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid rgba(255, 255, 255, 0.2);
-  transition:
-    transform 0.2s,
-    border-color 0.2s;
-}
-
-.color-option:hover {
-  transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.8);
 }
 
 .team-name-input {
@@ -897,7 +880,5 @@ function getTeamColor(teamIndex) {
   gap: 0.4rem;
   min-height: 60px;
   align-content: flex-start;
-}
-
 }
 </style>

@@ -15,17 +15,12 @@
   justify-content: center;
   text-align: center;
   padding: 8px 18px;
+  background: rgb(69, 123, 157);
 }
 
 /* Draggable pills (TeamSetup) */
 .student-pill {
   cursor: grab;
-  transition: background 0.15s;
-  background: #a8dadc42;
-}
-
-.student-pill:hover {
-  background: #a8dadc80;
 }
 
 .student-pill:active {
@@ -36,7 +31,6 @@
 .student-bubble,
 .student-bubble-preview {
   transition: opacity 0.3s ease;
-  background: #457b9d;
 }
 
 .student-bubble {
