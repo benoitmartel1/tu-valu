@@ -22,7 +22,7 @@ const genderGrouping = ref("separate"); // 'separate' (group together) or 'mix' 
 // Team colors palette - basic sports jersey colors
 const teamColors = [
   "#FF0000", // Red
-  "#0066CC", // Blue
+  "#0027ff", // Blue
   "#00AA00", // Green
   "#FFD700", // Yellow/Gold
   "#FF8C00", // Orange
@@ -525,7 +525,7 @@ function getTeamColor(teamIndex) {
             v-for="(team, teamIndex) in generatedTeams"
             :key="team.id"
             class="team-card"
-            :style="{ borderColor: getTeamColor(teamIndex) }"
+            :style="{ backgroundColor: getTeamColor(teamIndex) + '1A' }"
             @dragover="handleDragOver"
             @drop="handleDrop($event, teamIndex)"
           >
@@ -804,11 +804,11 @@ function getTeamColor(teamIndex) {
 }
 
 .team-card {
-  background: rgba(20, 10, 2, 0.2);
-  border: 3px solid rgba(255, 200, 80, 0.2);
+  background: rgba(20, 10, 2, 0.1);
+  border: 2px solid rgba(255, 200, 80, 0.2);
   border-radius: 16px;
   padding: 1rem;
-  transition: border-color 0.2s;
+  transition: background-color 0.2s;
 }
 
 .team-header {
@@ -826,6 +826,9 @@ function getTeamColor(teamIndex) {
   border-radius: 50%;
   cursor: pointer;
   flex-shrink: 0;
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 3px;
+  /* box-shadow: 0 0 3px 4px rgba(241, 241, 241, 0.2); */
 }
 
 .color-picker-dropdown {
