@@ -3064,14 +3064,24 @@ defineExpose({
                               :min="0"
                               label="Min"
                               size="small"
-                              @change="updateScaleFromInputs"
+                              @change="
+                                () => {
+                                  updateScaleFromInputs();
+                                  saveSkillDetail();
+                                }
+                              "
                             />
                             <RangeInput
                               v-model:value="editingNewSkillMax"
                               :min="editingNewSkillMin + editingNewSkillStep"
                               label="Max"
                               size="small"
-                              @change="updateScaleFromInputs"
+                              @change="
+                                () => {
+                                  updateScaleFromInputs();
+                                  saveSkillDetail();
+                                }
+                              "
                             />
                             <RangeInput
                               v-model:value="editingNewSkillStep"
@@ -3079,7 +3089,12 @@ defineExpose({
                               :step="0.1"
                               label="Pas"
                               size="small"
-                              @change="updateScaleFromInputs"
+                              @change="
+                                () => {
+                                  updateScaleFromInputs();
+                                  saveSkillDetail();
+                                }
+                              "
                             />
                           </div>
                         </div>
