@@ -106,11 +106,12 @@ async function generateTeams() {
     students: [],
   }));
 
+  // Distribution strategy based on separation method
   if (
     separationMethod.value === "gender" &&
     genderGrouping.value === "separate"
   ) {
-    // For separate mode: fill teams sequentially to keep genders together
+    // For gender separate mode: fill teams sequentially to keep genders together
     let currentTeamIndex = 0;
     let currentTeamCount = 0;
     const targetSize = Math.ceil(studentsWithInfo.length / numTeams);
@@ -126,7 +127,7 @@ async function generateTeams() {
       }
     });
   } else {
-    // For mix/random modes: distribute round-robin
+    // For all other modes (random, strength, gender mix): distribute round-robin for even spread
     studentsWithInfo.forEach((student, index) => {
       const teamIndex = index % numTeams;
       teams[teamIndex].students.push(student);
@@ -403,7 +404,7 @@ function cancel() {
                 value="strength"
                 @change="generateTeams"
               />
-              Par niveau
+              Niveau
             </label>
             <label class="radio-option">
               <input
@@ -412,7 +413,7 @@ function cancel() {
                 value="gender"
                 @change="generateTeams"
               />
-              Par genre
+              Genre
             </label>
           </div>
 
@@ -563,15 +564,15 @@ function cancel() {
 
 .radio-group {
   display: flex;
-  flex-direction: column;
+  /* flex-direction: column; */
   gap: 0.5rem;
 }
 
 /* Sub-options for gender grouping */
 .sub-options {
-  margin-top: 0.75rem;
+  /* margin-top: 0.75rem;
   padding-left: 1rem;
-  border-left: 2px solid rgba(255, 200, 80, 0.2);
+  border-left: 2px solid rgba(255, 200, 80, 0.2); */
 }
 
 .sub-option-label {
@@ -605,11 +606,6 @@ function cancel() {
   border-radius: 999px;
   border: 2px solid rgba(255, 255, 255, 0.2);
   transition: all 0.15s;
-}
-
-.radio-option:hover {
-  opacity: 0.9;
-  background: rgba(255, 255, 255, 0.05);
 }
 
 .radio-option input[type="radio"] {
