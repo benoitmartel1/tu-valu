@@ -305,10 +305,14 @@ function openTeamModal() {
   teamModalOpen.value = true;
 }
 
-function handleModalBackdropClick() {
+function handleModalBackdropClick(event) {
   // Close teams modal when clicking on backdrop
   if (teamModalOpen.value) {
     teamModalOpen.value = false;
+    // Force reactivity update
+    nextTick(() => {
+      console.log('Teams modal closed via backdrop');
+    });
   }
 }
 
