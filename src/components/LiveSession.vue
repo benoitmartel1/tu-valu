@@ -305,17 +305,6 @@ function openTeamModal() {
   teamModalOpen.value = true;
 }
 
-function handleModalBackdropClick(event) {
-  // Close teams modal when clicking on backdrop
-  if (teamModalOpen.value) {
-    teamModalOpen.value = false;
-    // Force reactivity update
-    nextTick(() => {
-      console.log('Teams modal closed via backdrop');
-    });
-  }
-}
-
 function onTeamsCreated(newTeams) {
   teamModalOpen.value = false;
   teamsActive.value = true;
@@ -2545,7 +2534,6 @@ defineExpose({
           classModalOpen || evalModalOpen || reportModalOpen || teamModalOpen
         "
         class="picker-screen picker-screen--modal"
-        @click.self="handleModalBackdropClick"
       >
         <Transition name="panel-drawer" mode="out-in">
           <div
