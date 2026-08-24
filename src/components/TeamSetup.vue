@@ -75,10 +75,10 @@ async function generateTeams() {
     studentsWithInfo = strengths.sort((a, b) => b.strength - a.strength);
   } else if (separationMethod.value === "gender") {
     // Group by gender first
-    const males = studentsWithInfo.filter((s) => s.gender === "male");
-    const females = studentsWithInfo.filter((s) => s.gender === "female");
+    const males = studentsWithInfo.filter((s) => s.gender === "M");
+    const females = studentsWithInfo.filter((s) => s.gender === "F");
     const others = studentsWithInfo.filter(
-      (s) => s.gender !== "male" && s.gender !== "female",
+      (s) => s.gender !== "M" && s.gender !== "F",
     );
 
     if (genderGrouping.value === "separate") {
@@ -106,7 +106,10 @@ async function generateTeams() {
     students: [],
   }));
 
-  if (separationMethod.value === "gender" && genderGrouping.value === "separate") {
+  if (
+    separationMethod.value === "gender" &&
+    genderGrouping.value === "separate"
+  ) {
     // For separate mode: fill teams sequentially to keep genders together
     let currentTeamIndex = 0;
     let currentTeamCount = 0;
