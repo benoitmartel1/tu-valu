@@ -17,6 +17,8 @@ import {
   Check,
   HatGlasses,
   Funnel,
+  User,
+  LogOut,
   createLucideIcon,
   PenIcon,
   LogOut,
@@ -361,6 +363,7 @@ const hoveredAbsent = ref(false); // whether drag is over the absent zone
 
 // ── Students row filter state ─────────────────────────
 const filterPanelOpen = ref(false);
+const userMenuOpen = ref(false);
 const sortBy = ref("firstname"); // 'firstname' | 'lastname'
 const genderFilter = ref("all"); // 'all' | 'male' | 'female' (data not yet in DB)
 
@@ -2475,18 +2478,32 @@ defineExpose({
       </div>
       <div class="top-bar-spacer"></div>
       <div class="top-bar-right">
-        <div v-if="userEmail" class="user-info">
-          <span class="user-email">{{ userEmail }}</span>
+        <!-- User menu -->
+        <div class="user-menu-container">
+          <button
+            class="user-menu-btn"
+            @click="userMenuOpen = !userMenuOpen"
+            title="User menu"
+          >
+            <User :size="24" />
+          </button>
+
+          <!-- User menu popup -->
+          <div v-if="userMenuOpen" class="user-menu-popup" @click.stop>
+            <div v-if="userEmail" class="user-menu-email">
+              {{ userEmail }}
+            </div>
+            <button class="user-menu-logout" @click="handleLogout">
+              <LogOut :size="18" />
+              <span>Déconnexion</span>
+            </button>
+          </div>
         </div>
-        <button class="logout-btn" title="Sign out" @click="handleLogout">
-          <LogOut :size="20" />
-          <span>Logout</span>
-        </button>
       </div>
     </div>
 
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
-    <div class="main-content">
+    <div class="main-content" @click="userMenuOpen = false">
       <!-- LIVE SCREEN (always visible) -->
       <div class="live-screen">
         <!-- Drop zones -->
@@ -3833,12 +3850,73 @@ textarea {
   align-items: center;
 }
 
-.user-email {
-  font-size: 13px;
-  color: var(--text-muted);
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.2);
+/* User menu */
+.user-menu-container {
+  position: relative;
+}
+
+.user-menu-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-light);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.user-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.user-menu-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: rgba(20, 10, 2, 0.95);
+  border: 1.5px solid rgba(255, 200, 80, 0.3);
+  border-radius: 12px;
+  padding: 0.75rem;
+  min-width: 250px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.user-menu-email {
+  font-size: 0.85rem;
+  color: var(--text-light);
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.user-menu-logout {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.user-menu-logout:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .logout-btn {
