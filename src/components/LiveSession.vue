@@ -3822,10 +3822,10 @@ textarea {
 
 /* ── Menu buttons ──────────────────────────────────── */
 .fab {
-  /* border: 2px var(--text-light) solid; */
-  border: none;
+  border: 2px solid transparent;
   border-radius: 18px 18px 0 0;
   padding: 0.8rem 2rem;
+  margin-bottom: 3px;
   color: var(--text-light);
   background: rgba(0, 0, 0, 0.3);
   font-family: inherit;
@@ -3834,10 +3834,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition:
-    background 0.2s,
-    color 0.2s,
-    transform 0.15s;
+  transition: all 0.2s;
 }
 
 .fab:disabled {
@@ -3845,22 +3842,25 @@ textarea {
   cursor: not-allowed;
 }
 
+/* Filled mode: stroke around the button (for classes and eval only) */
 .fab--filled {
-  background: #457b9d;
   border-color: #457b9d;
+  background: transparent;
   color: var(--text-light);
   font-weight: 700;
 }
 
+/* Modal open: expands down, fills background, removes bottom radius */
 .fab--modal-open {
-  /* border-radius: 16px 16px 0 0; */
+  border-radius: 18px 18px 0 0;
   border-bottom: none;
+  margin-bottom: 0;
   background: #457b9d;
   border-color: #457b9d;
-  /* border-color: var(--text-light); */
   color: var(--text-light);
 }
 
+/* Report button modal state */
 .fab--modal-report {
   background: var(--text-light);
   border-color: var(--text-light);
@@ -3868,15 +3868,19 @@ textarea {
 }
 
 /* ── Eval button (yellow) ─────────────────────────── */
-.fab--eval.fab--filled,
+.fab--eval.fab--filled {
+  border-color: var(--stadium-yellow);
+  background: transparent;
+}
+
 .fab--eval.fab--modal-open {
   background: var(--stadium-yellow);
   border-color: var(--stadium-yellow);
-
+  color: var(--text-light);
   font-weight: 700;
 }
 
-/* ── Teams button (dark blue) ─────────────────────── */
+/* ── Teams button (gray) ─────────────────────── */
 .fab--teams.fab--modal-open {
   background: var(--team-gray);
   border-color: var(--team-gray);
