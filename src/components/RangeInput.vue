@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from "vue";
 import { ChevronLeft, ChevronRight } from "@lucide/vue";
 
 const props = defineProps({
