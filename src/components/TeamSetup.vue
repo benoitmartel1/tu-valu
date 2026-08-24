@@ -526,7 +526,6 @@ function getTeamColor(teamIndex) {
             v-for="(team, teamIndex) in generatedTeams"
             :key="team.id"
             class="team-card"
-            :style="{ backgroundColor: getTeamColor(teamIndex) + '1A' }"
             @dragover="handleDragOver"
             @drop="handleDrop($event, teamIndex)"
           >
@@ -795,7 +794,7 @@ function getTeamColor(teamIndex) {
 }
 
 .team-card {
-  background: rgba(20, 10, 2, 0.1);
+  /* background: rgba(20, 10, 2, 0.1); */
   /* border: 2px solid rgba(255, 200, 80, 0.2); */
   border-radius: 16px;
   padding: 1rem;
