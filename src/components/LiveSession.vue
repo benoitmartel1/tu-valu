@@ -1358,19 +1358,21 @@ const evalSelectionSummary = computed(() => {
 });
 
 const selectionSummary = computed(() => {
-  const classCount = checkedClassIds.value.size;
-  const extraStudentCount = checkedStudentIds.value.size;
-  if (classCount === 0 && extraStudentCount === 0) return "";
-  const parts = [];
-  if (classCount > 0) {
-    parts.push(`${classCount} groupe${classCount > 1 ? "s" : ""}`);
-  }
-  if (extraStudentCount > 0) {
-    parts.push(`${extraStudentCount} élève${extraStudentCount > 1 ? "s" : ""}`);
+  // Count total students from checked classes and individually checked students
+  let totalStudents = 0;
+
+  // Add students from checked classes
+  for (const classId of checkedClassIds.value) {
+    const classStudents = allStudents.value.filter(
+      (s) => s.class_id === classId && !excludedStudentIds.value.has(s.id),
+    );
+    totalStudents += classStudents.length;
   }
 
+  // Add individually checked students
+  totalStudents += checkedStudentIds.value.size;
 
-  return parts.join(" · ");
+  return totalStudents > 0 ? totalStudents.toString() : "";
 });
 
 async function handleClassCheck(cls) {
@@ -3874,8 +3876,7 @@ textarea {
   font-weight: 700;
 }
 
-/* ── Teams button (gray) ─────────────────────── */
-.fab--teams.fab--filled,
+/* ── Teams button (dark blue) ─────────────────────── */
 .fab--teams.fab--modal-open {
   background: var(--team-gray);
   border-color: var(--team-gray);
