@@ -106,10 +106,29 @@ async function generateTeams() {
     students: [],
   }));
 
-  studentsWithInfo.forEach((student, index) => {
-    const teamIndex = index % numTeams;
-    teams[teamIndex].students.push(student);
-  });
+  if (separationMethod.value === "gender" && genderGrouping.value === "separate") {
+    // For separate mode: fill teams sequentially to keep genders together
+    let currentTeamIndex = 0;
+    let currentTeamCount = 0;
+    const targetSize = Math.ceil(studentsWithInfo.length / numTeams);
+
+    studentsWithInfo.forEach((student) => {
+      teams[currentTeamIndex].students.push(student);
+      currentTeamCount++;
+
+      // Move to next team when current one reaches target size
+      if (currentTeamCount >= targetSize && currentTeamIndex < numTeams - 1) {
+        currentTeamIndex++;
+        currentTeamCount = 0;
+      }
+    });
+  } else {
+    // For mix/random modes: distribute round-robin
+    studentsWithInfo.forEach((student, index) => {
+      const teamIndex = index % numTeams;
+      teams[teamIndex].students.push(student);
+    });
+  }
 
   generatedTeams.value = teams;
 }
