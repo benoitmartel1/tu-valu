@@ -83,11 +83,12 @@ const teamColors = [
   "#00AA00", // Green
   "#FFD700", // Yellow/Gold
   "#FF8C00", // Orange
+  "#000000", // Black
+  "#FF69B4", // Pink
   "#9932CC", // Purple
   "#FFFFFF", // White
-  "#FF69B4", // Pink
+
   "#00CED1", // Cyan/Turquoise
-  "#8B0000", // Dark Red/Maroon
 ];
 
 function getTeamColor(teamId) {
