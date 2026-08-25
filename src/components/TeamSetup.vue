@@ -14,6 +14,38 @@ const props = defineProps({
 
 const emit = defineEmits(["done", "cancel"]);
 
+// Format student name based on their individual preferences
+function formatStudentName(student) {
+  if (!student) return "";
+
+  // Use student's preferences if available, otherwise use defaults
+  const prefs = student.name_display_prefs || {
+    showFirstname: true,
+    showInitial: false,
+    showLastname: false,
+  };
+
+  const parts = [];
+  if (prefs.showFirstname) {
+    parts.push(student.firstname);
+  }
+  if (prefs.showInitial && student.lastname) {
+    parts.push(student.lastname.charAt(0).toUpperCase() + ".");
+  }
+  if (prefs.showLastname && student.lastname) {
+    parts.push(student.lastname);
+  }
+
+  return parts.join(" ") || student.firstname;
+}
+
+// Generate teams automatically on mount
+onMounted(() => {
+  if (props.students.length > 0) {
+    generateTeams();
+  }
+});
+
 // Team generation settings
 const teamMode = ref("count"); // 'count' (number of teams) or 'size' (students per team)
 const teamCount = ref(3);
@@ -86,13 +118,6 @@ const showColorPicker = ref(null); // Track which team's color picker is open
 
 // Unassigned students (dropped in empty space)
 const unassignedStudents = ref([]);
-
-// Generate teams automatically on mount
-onMounted(() => {
-  if (props.students.length > 0) {
-    generateTeams();
-  }
-});
 
 // Calculate student strength based on existing evaluations
 async function calculateStudentStrength(studentId) {
@@ -722,7 +747,7 @@ function getTeamColor(teamIndex) {
                 draggable="true"
                 @dragstart="handleDragStart($event, student, teamIndex)"
               >
-                {{ student.firstname }}
+                {{ formatStudentName(student) }}
               </div>
             </div>
           </div>
@@ -740,7 +765,7 @@ function getTeamColor(teamIndex) {
           draggable="true"
           @dragstart="handleDragStart($event, student, -1)"
         >
-          {{ student.firstname }}
+          {{ formatStudentName(student) }}
         </div>
       </div>
     </div>

@@ -158,8 +158,33 @@ const editingClassName = ref("");
 const isAddingNewClass = ref(false);
 const classDetailId = ref(null); // null | 'new' | classId — opens ClassDetail view
 const studentDetailId = ref(null); // null | studentId — opens student detail view
-const studentDetailData = ref(null); // { id, firstname, lastname, gender } loaded from DB
+const studentDetailData = ref(null); // { id, firstname, lastname, gender, name_display_prefs } loaded from DB
 const studentImportOpen = ref(false);
+
+// Format student name based on their individual preferences
+function formatStudentName(student) {
+  if (!student) return "";
+
+  // Use student's preferences if available, otherwise use defaults
+  const prefs = student.name_display_prefs || {
+    showFirstname: true,
+    showInitial: false,
+    showLastname: false,
+  };
+
+  const parts = [];
+  if (prefs.showFirstname) {
+    parts.push(student.firstname);
+  }
+  if (prefs.showInitial && student.lastname) {
+    parts.push(student.lastname.charAt(0).toUpperCase() + ".");
+  }
+  if (prefs.showLastname && student.lastname) {
+    parts.push(student.lastname);
+  }
+
+  return parts.join(" ") || student.firstname;
+}
 
 // ── Evaluation CRUD state ──────────────────────────────
 const editingEvalId = ref(null);
@@ -271,7 +296,9 @@ async function loadAllData() {
   // Don't order in database - we'll sort in JavaScript with proper French locale
   const { data: studentData } = await supabase
     .from("tu_students")
-    .select("id, firstname, lastname, gender, birth_date, class_id");
+    .select(
+      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs",
+    );
   allStudents.value = studentData || [];
 
   // Load skills
@@ -1603,6 +1630,11 @@ async function saveStudentDetail() {
       firstname: firstname.trim(),
       lastname: lastname.trim(),
       gender: gender || null,
+      name_display_prefs: studentDetailEditing.value.name_display_prefs || {
+        showFirstname: true,
+        showInitial: false,
+        showLastname: false,
+      },
     })
     .eq("id", studentDetailId.value);
   if (error) {
@@ -1629,6 +1661,11 @@ async function saveStudentDetail() {
       firstname: firstname.trim(),
       lastname: lastname.trim(),
       gender: gender || null,
+      name_display_prefs: studentDetailEditing.value.name_display_prefs || {
+        showFirstname: true,
+        showInitial: false,
+        showLastname: false,
+      },
     };
 
     console.log("Updated student object:", updatedStudent);
@@ -1668,6 +1705,25 @@ function toggleGender(value) {
   if (!studentDetailEditing.value) return;
   studentDetailEditing.value.gender =
     studentDetailEditing.value.gender === value ? null : value;
+  saveStudentDetail();
+}
+
+function toggleNamePref(prefKey) {
+  if (!studentDetailEditing.value) return;
+
+  // Initialize name_display_prefs if it doesn't exist
+  if (!studentDetailEditing.value.name_display_prefs) {
+    studentDetailEditing.value.name_display_prefs = {
+      showFirstname: true,
+      showInitial: false,
+      showLastname: false,
+    };
+  }
+
+  // Toggle the specific preference
+  studentDetailEditing.value.name_display_prefs[prefKey] =
+    !studentDetailEditing.value.name_display_prefs[prefKey];
+
   saveStudentDetail();
 }
 
@@ -2609,7 +2665,7 @@ defineExpose({
         <!-- Floating drag clone -->
         <Teleport to="body">
           <div v-if="drag" class="drag-clone" :style="cloneStyle">
-            {{ drag.student.firstname }}
+            {{ formatStudentName(drag.student) }}
           </div>
         </Teleport>
       </div>
@@ -2752,10 +2808,7 @@ defineExpose({
                               }"
                               @click="studentDetailId = student.id"
                             >
-                              <span
-                                >{{ student.firstname }}
-                                {{ student.lastname }}</span
-                              >
+                              <span>{{ formatStudentName(student) }}</span>
                               <span
                                 class="row-checkbox"
                                 :class="{
@@ -2856,6 +2909,53 @@ defineExpose({
                               >
                                 F
                               </button>
+                            </div>
+                          </div>
+                          <div class="detail-section">
+                            <label class="detail-label">Affichage du nom</label>
+                            <div class="name-display-options">
+                              <label class="checkbox-option">
+                                <div class="checkbox-circle">
+                                  <input
+                                    type="checkbox"
+                                    :checked="
+                                      studentDetailEditing.name_display_prefs
+                                        ?.showFirstname ?? true
+                                    "
+                                    @change="toggleNamePref('showFirstname')"
+                                  />
+                                </div>
+                                <span>Prénom</span>
+                              </label>
+                              <label class="checkbox-option">
+                                <div class="checkbox-circle">
+                                  <input
+                                    type="checkbox"
+                                    :checked="
+                                      studentDetailEditing.name_display_prefs
+                                        ?.showInitial ?? false
+                                    "
+                                    @change="toggleNamePref('showInitial')"
+                                  />
+                                </div>
+                                <span>Initiale</span>
+                              </label>
+                              <label class="checkbox-option">
+                                <div class="checkbox-circle">
+                                  <input
+                                    type="checkbox"
+                                    :checked="
+                                      studentDetailEditing.name_display_prefs
+                                        ?.showLastname ?? false
+                                    "
+                                    @change="toggleNamePref('showLastname')"
+                                  />
+                                </div>
+                                <span>Nom</span>
+                              </label>
+                            </div>
+                            <div class="name-preview">
+                              Aperçu: {{ formatStudentName(studentDetailData) }}
                             </div>
                           </div>
                           <div
@@ -3500,7 +3600,7 @@ defineExpose({
                                 class="report-td-student report-td-student--clickable"
                                 @click="reportSelectedStudentId = student.id"
                               >
-                                {{ student.firstname + " " + student.lastname }}
+                                {{ formatStudentName(student) }}
                               </td>
                               <td
                                 v-for="skill in reportData.skills"
@@ -3775,7 +3875,7 @@ defineExpose({
                 background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
               }"
             >
-              {{ student.firstname }}
+              {{ formatStudentName(student) }}
             </div>
           </div>
         </template>
@@ -3794,7 +3894,7 @@ defineExpose({
                 background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
               }"
             >
-              {{ student.firstname }}
+              {{ formatStudentName(student) }}
             </div>
           </div>
         </template>
@@ -5796,6 +5896,80 @@ textarea {
   background: rgba(33, 37, 41, 0.6);
   opacity: 1;
   transform: scale(1);
+}
+
+/* Name display options */
+.name-display-options {
+  display: flex;
+  /* flex-direction: column; */
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-light);
+  opacity: 0.8;
+  transition: opacity 0.2s;
+  user-select: none;
+}
+
+.checkbox-option:hover {
+  opacity: 1;
+}
+
+.checkbox-circle {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.checkbox-option:has(input:checked) .checkbox-circle {
+  background: rgba(33, 37, 41, 0.6);
+}
+
+.checkbox-option input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.checkbox-circle::after {
+  content: "✓";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.checkbox-option:has(input:checked) .checkbox-circle::after {
+  opacity: 1;
+}
+
+.name-preview {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 168px;
+  /* background: rgba(255, 200, 80, 0.1); */
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 0.85rem;
+  /* color: var(--text-light); */
+  opacity: 0.7;
+  font-style: italic;
 }
 
 .class-pill {
