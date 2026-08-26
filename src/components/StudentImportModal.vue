@@ -739,7 +739,7 @@ async function uploadPictures() {
         const compressedFile = await compressImage(match.file);
 
         // Get POST policy and signature from PHP backend
-        const response = await fetch("/api/generate-presigned-url.php", {
+        const response = await fetch(import.meta.env.BASE_URL + "api/generate-presigned-url.php", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
