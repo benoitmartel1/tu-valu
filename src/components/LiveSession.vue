@@ -22,6 +22,7 @@ import {
   LogOut,
   createLucideIcon,
   PenIcon,
+  Component,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
@@ -186,6 +187,15 @@ function formatStudentName(student) {
   return parts.join(" ") || student.firstname;
 }
 
+// Format full student name for reports (always show first + last name)
+function formatStudentFullName(student) {
+  if (!student) return "";
+  const parts = [];
+  if (student.firstname) parts.push(student.firstname);
+  if (student.lastname) parts.push(student.lastname);
+  return parts.join(" ") || student.firstname || "";
+}
+
 // ── Evaluation CRUD state ──────────────────────────────
 const editingEvalId = ref(null);
 const editingEvalTitle = ref("");
@@ -297,7 +307,7 @@ async function loadAllData() {
   const { data: studentData } = await supabase
     .from("tu_students")
     .select(
-      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs",
+      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url",
     );
   allStudents.value = studentData || [];
 
@@ -1578,29 +1588,38 @@ watch(studentDetailId, async (id) => {
     return;
   }
 
-  // Get student from allStudents (single source of truth)
-  const student = allStudents.value.find((s) => s.id === id);
+  // Always fetch fresh data from Supabase to get latest photo_url
+  const { data } = await supabase
+    .from("tu_students")
+    .select(
+      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url",
+    )
+    .eq("id", id)
+    .single();
 
-  if (student) {
-    studentDetailData.value = { ...student };
-    // Create a local copy for editing
-    studentDetailEditing.value = { ...student };
+  if (data) {
+    studentDetailData.value = { ...data };
+    studentDetailEditing.value = { ...data };
+
+    // Also update the cached allStudents with fresh data
+    const idx = allStudents.value.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      allStudents.value[idx] = { ...data };
+    }
+
+    console.log("Student detail loaded:", {
+      id: data.id,
+      name: `${data.firstname} ${data.lastname}`,
+      photo_url: data.photo_url,
+    });
   } else {
-    // Fallback: load from Supabase if not in allStudents
-    const { data } = await supabase
-      .from("tu_students")
-      .select("id, firstname, lastname, gender, class_id")
-      .eq("id", id)
-      .single();
-
-    studentDetailData.value = data || {
+    studentDetailData.value = {
       firstname: "",
       lastname: "",
       gender: null,
     };
-    studentDetailEditing.value = studentDetailData.value
-      ? { ...studentDetailData.value }
-      : null;
+    studentDetailEditing.value = null;
+    console.log("Student not found:", id);
   }
 });
 
@@ -2103,8 +2122,12 @@ async function loadReportData() {
   const classIds = [...checkedClassIds.value];
   // Student IDs currently selected for the live view
   const selectedStudentIds = new Set(currentStudents.value.map((s) => s.id));
-  // Skill IDs currently selected for the live view
-  const selectedSkillIds = new Set(skills.value.map((sk) => sk.id));
+  // Skill IDs currently selected for the live view (only checked skills)
+  const selectedSkillIds = new Set(
+    skills.value
+      .filter((sk) => checkedSkillIds.value.has(sk.id))
+      .map((sk) => sk.id),
+  );
 
   // Determine relevant eval IDs for the report (same logic as startSession)
   const relevantEvalIdsForReport = new Set([...checkedEvalIds.value]);
@@ -2154,7 +2177,9 @@ async function loadReportData() {
       students: (studentsRes.data || []).sort((a, b) =>
         a.firstname.localeCompare(b.firstname, "fr-FR"),
       ),
-      skills: skillsRes.data || [],
+      skills: (skillsRes.data || []).sort((a, b) =>
+        a.name.localeCompare(b.name, "fr-FR"),
+      ),
       events: eventsRes.data || [],
     };
   } catch (err) {
@@ -2523,7 +2548,16 @@ defineExpose({
             <Sneaker :size="20" />
           </template>
         </button>
-
+        <!-- Teams button -->
+        <button
+          class="fab fab--teams"
+          :class="{ 'fab--modal-open': isTeamModalOpen }"
+          :disabled="currentStudents.length === 0"
+          title="Équipes"
+          @click="openTeamModal"
+        >
+          <Component :size="20" />
+        </button>
         <!-- Report button -->
         <button
           class="fab"
@@ -2533,17 +2567,6 @@ defineExpose({
           @click="openReport"
         >
           <BarChart3 :size="20" />
-        </button>
-
-        <!-- Teams button -->
-        <button
-          class="fab fab--teams"
-          :class="{ 'fab--modal-open': isTeamModalOpen }"
-          :disabled="currentStudents.length === 0"
-          title="Équipes"
-          @click="openTeamModal"
-        >
-          <Users :size="24" />
         </button>
       </div>
       <div class="top-bar-spacer"></div>
@@ -2679,6 +2702,7 @@ defineExpose({
           isTeamModalOpen
         "
         class="picker-screen picker-screen--modal"
+        @click.self="studentImportOpen = false"
       >
         <Transition name="panel-drawer" mode="out-in">
           <div
@@ -2710,7 +2734,7 @@ defineExpose({
                   <!-- Column 1: Classes list -->
                   <div class="class-column">
                     <div class="column-header">
-                      <h3>Classes</h3>
+                      <h3>Groupes</h3>
                       <button
                         class="picker-item picker-item--inline add-btn"
                         @click="handleAddNewClass"
@@ -2856,7 +2880,25 @@ defineExpose({
                       <div class="student-detail-layout">
                         <!-- Photo placeholder -->
                         <div class="student-detail-photo">
-                          <div class="student-photo-circle">
+                          <img
+                            v-if="
+                              studentDetailEditing?.photo_url ||
+                              studentDetailData?.photo_url
+                            "
+                            :src="
+                              studentDetailEditing?.photo_url ||
+                              studentDetailData?.photo_url
+                            "
+                            :alt="`${studentDetailEditing?.firstname || studentDetailData?.firstname} ${studentDetailEditing?.lastname || studentDetailData?.lastname}`"
+                            class="student-photo-img"
+                            @error="
+                              (e) => {
+                                console.log('Image load error:', e.target.src);
+                                e.target.style.display = 'none';
+                              }
+                            "
+                          />
+                          <div v-else class="student-photo-circle">
                             <span class="student-photo-initials">{{
                               getInitials(
                                 studentDetailEditing?.firstname ||
@@ -3003,685 +3045,697 @@ defineExpose({
             class="picker-panel class-modal picker-panel--full eval-bg"
           >
             <div class="class-modal-body">
-              <!-- Close button -->
-              <button
-                v-if="skillDetailId === null && editingEvalId === null"
-                class="close-modal-btn"
-                @click="toggleModal('eval')"
-              >
-                <ChevronUp :size="36" :stroke-width="3" />
-              </button>
+              <div class="class-modal-content">
+                <!-- Close button -->
 
-              <!-- 3-column layout for evaluation management -->
-              <div class="class-three-column-layout">
-                <!-- Column 1: Evaluations list -->
-                <div class="class-column">
-                  <div class="column-header">
-                    <h3>Activités</h3>
-                    <button
-                      class="picker-item picker-item--inline add-btn"
-                      @click="handleAddNewEval"
-                    >
-                      <Plus :size="20" :stroke-width="3" />
-                    </button>
-                  </div>
-                  <div class="class-list">
-                    <div v-for="ev in evaluations" :key="ev.id">
+                <aside class="class-modal-rail" aria-label="Actions de classe">
+                  <button
+                    class="class-modal-rail-button close"
+                    title="Fermer"
+                    @click="toggleModal('eval')"
+                  >
+                    <ChevronUp :size="28" :stroke-width="3" />
+                  </button>
+                  <!-- <button
+                  class="class-modal-rail-button"
+                  title="Importer des élèves"
+                  @click="openStudentImport"
+                >
+                  <Upload :size="24" :stroke-width="2.5" />
+                </button> -->
+                </aside>
+                <!-- 3-column layout for evaluation management -->
+                <div class="class-three-column-layout">
+                  <!-- Column 1: Evaluations list -->
+                  <div class="class-column">
+                    <div class="column-header">
+                      <h3>Activités</h3>
                       <button
-                        class="picker-item class-item"
-                        :class="{
-                          selected: selectedEvalId === ev.id,
-                        }"
-                        @click="selectEvalInModal(ev.id)"
+                        class="picker-item picker-item--inline add-btn"
+                        @click="handleAddNewEval"
                       >
-                        <div>{{ ev.title }}</div>
-                        <div class="class-item-buttons">
-                          <div
-                            class="edit-class-btn-small"
-                            @click.stop="editingEvalId = ev.id"
-                            title="Modifier l'activité"
-                          >
-                            <PenIcon :size="16" />
-                          </div>
-                          <div
-                            class="row-checkbox"
-                            :class="{
-                              checked:
-                                checkedEvalIds.has(ev.id) ||
-                                evalHasSelectedSkills(ev.id),
-                            }"
-                            @click.stop="handleEvalCheck(ev)"
-                          >
-                            <Check
-                              v-if="
-                                checkedEvalIds.has(ev.id) ||
-                                evalHasSelectedSkills(ev.id)
-                              "
-                              :size="24"
-                              :stroke-width="3"
-                            />
-                          </div>
-                        </div>
+                        <Plus :size="20" :stroke-width="3" />
                       </button>
                     </div>
-                  </div>
-                </div>
-
-                <!-- Column 2: Skills or Eval Detail -->
-                <div class="students-column">
-                  <Transition name="fade-slide" mode="out-in">
-                    <!-- Show eval editing form when editing -->
-                    <div
-                      v-if="editingEvalId !== null"
-                      :key="'eval-detail'"
-                      class="class-detail-container"
-                    >
-                      <div class="detail-section">
-                        <div class="class-name-row">
-                          <label class="detail-label">Titre</label>
-                          <input
-                            v-model="editingEvalTitle"
-                            class="detail-input"
-                            placeholder="Ex: Lecture"
-                            @blur="saveEvalTitleInline"
-                            @keyup.enter="saveEvalTitleInline"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Skills list for this evaluation -->
-                      <div class="detail-section">
-                        <label class="detail-label">
-                          Habiletés
-                          <span class="student-count">{{
-                            getSkillsForEval(editingEvalId).length
-                          }}</span>
-                        </label>
-                        <div class="students-list">
-                          <div
-                            v-for="skill in getSkillsForEval(editingEvalId)"
-                            :key="skill.id"
-                            class="student-row"
-                          >
-                            <span
-                              class="student-name"
-                              @click="skillDetailId = skill.id"
-                            >
-                              {{ skill.name }}
-                            </span>
-                            <span class="student-row-actions">
-                              <PenIcon
-                                :size="20"
-                                @click="skillDetailId = skill.id"
-                              />
-                              <X
-                                :size="20"
-                                @click="deleteSkillInline(skill.id)"
-                              />
-                            </span>
-                          </div>
-                          <div
-                            v-if="getSkillsForEval(editingEvalId).length === 0"
-                            class="students-empty"
-                          >
-                            Aucune habileté
-                          </div>
-                        </div>
-
-                        <!-- Add skill form -->
-                        <div class="add-student-row">
-                          <input
-                            v-model="editingNewSkillName"
-                            class="detail-input student-input"
-                            placeholder="Nom de l'habileté"
-                            @keyup.enter="addSkillToEval"
-                          />
-                          <button
-                            class="btn-icon"
-                            title="Ajouter"
-                            @click="addSkillToEval"
-                          >
-                            <Plus :size="24" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- Otherwise show skills list -->
-                    <div v-else :key="'skills-list'">
-                      <div class="column-header">
-                        <h3>
-                          {{
-                            selectedEvalId
-                              ? `Habiletés`
-                              : "Sélectionnez une activité"
-                          }}
-                        </h3>
+                    <div class="class-list">
+                      <div v-for="ev in evaluations" :key="ev.id">
                         <button
-                          v-if="selectedEvalId"
-                          class="picker-item picker-item--inline add-btn"
-                          @click="handleAddNewSkill(selectedEvalId)"
+                          class="picker-item class-item"
+                          :class="{
+                            selected: selectedEvalId === ev.id,
+                          }"
+                          @click="selectEvalInModal(ev.id)"
                         >
-                          <Plus :size="20" :stroke-width="3" />
-                        </button>
-                      </div>
-                      <div v-if="selectedEvalId" class="student-list">
-                        <div
-                          v-for="skill in getSkillsForEval(selectedEvalId)"
-                          :key="skill.id"
-                          class="student-item-row"
-                        >
-                          <button
-                            class="picker-item student-item"
-                            :class="{ selected: skillDetailId === skill.id }"
-                            @click="skillDetailId = skill.id"
-                          >
-                            <span>{{ skill.name }}</span>
-                            <span
+                          <div>{{ ev.title }}</div>
+                          <div class="class-item-buttons">
+                            <div
+                              class="edit-class-btn-small"
+                              @click.stop="editingEvalId = ev.id"
+                              title="Modifier l'activité"
+                            >
+                              <PenIcon :size="16" />
+                            </div>
+                            <div
                               class="row-checkbox"
                               :class="{
-                                checked: checkedSkillIds.has(skill.id),
+                                checked:
+                                  checkedEvalIds.has(ev.id) ||
+                                  evalHasSelectedSkills(ev.id),
                               }"
-                              @click.stop="toggleChecked(skill.id, 'skill')"
+                              @click.stop="handleEvalCheck(ev)"
                             >
                               <Check
-                                v-if="checkedSkillIds.has(skill.id)"
+                                v-if="
+                                  checkedEvalIds.has(ev.id) ||
+                                  evalHasSelectedSkills(ev.id)
+                                "
                                 :size="24"
                                 :stroke-width="3"
                               />
-                            </span>
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Column 2: Skills or Eval Detail -->
+                  <div class="students-column">
+                    <Transition name="fade-slide" mode="out-in">
+                      <!-- Show eval editing form when editing -->
+                      <div
+                        v-if="editingEvalId !== null"
+                        :key="'eval-detail'"
+                        class="class-detail-container"
+                      >
+                        <div class="detail-section">
+                          <div class="class-name-row">
+                            <label class="detail-label">Titre</label>
+                            <input
+                              v-model="editingEvalTitle"
+                              class="detail-input"
+                              placeholder="Ex: Lecture"
+                              @blur="saveEvalTitleInline"
+                              @keyup.enter="saveEvalTitleInline"
+                            />
+                          </div>
+                        </div>
+
+                        <!-- Skills list for this evaluation -->
+                        <div class="detail-section">
+                          <label class="detail-label">
+                            Habiletés
+                            <span class="student-count">{{
+                              getSkillsForEval(editingEvalId).length
+                            }}</span>
+                          </label>
+                          <div class="students-list">
+                            <div
+                              v-for="skill in getSkillsForEval(editingEvalId)"
+                              :key="skill.id"
+                              class="student-row"
+                            >
+                              <span
+                                class="student-name"
+                                @click="skillDetailId = skill.id"
+                              >
+                                {{ skill.name }}
+                              </span>
+                              <span class="student-row-actions">
+                                <PenIcon
+                                  :size="20"
+                                  @click="skillDetailId = skill.id"
+                                />
+                                <X
+                                  :size="20"
+                                  @click="deleteSkillInline(skill.id)"
+                                />
+                              </span>
+                            </div>
+                            <div
+                              v-if="
+                                getSkillsForEval(editingEvalId).length === 0
+                              "
+                              class="students-empty"
+                            >
+                              Aucune habileté
+                            </div>
+                          </div>
+
+                          <!-- Add skill form -->
+                          <div class="add-student-row">
+                            <input
+                              v-model="editingNewSkillName"
+                              class="detail-input student-input"
+                              placeholder="Nom de l'habileté"
+                              @keyup.enter="addSkillToEval"
+                            />
+                            <button
+                              class="btn-icon"
+                              title="Ajouter"
+                              @click="addSkillToEval"
+                            >
+                              <Plus :size="24" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Otherwise show skills list -->
+                      <div v-else :key="'skills-list'">
+                        <div class="column-header">
+                          <h3>
+                            {{
+                              selectedEvalId
+                                ? `Habiletés`
+                                : "Sélectionnez une activité"
+                            }}
+                          </h3>
+                          <button
+                            v-if="selectedEvalId"
+                            class="picker-item picker-item--inline add-btn"
+                            @click="handleAddNewSkill(selectedEvalId)"
+                          >
+                            <Plus :size="20" :stroke-width="3" />
                           </button>
                         </div>
-                        <div
-                          v-if="!getSkillsForEval(selectedEvalId)?.length"
-                          class="picker-empty"
-                        >
-                          Aucune habileté dans cette activité
+                        <div v-if="selectedEvalId" class="student-list">
+                          <div
+                            v-for="skill in getSkillsForEval(selectedEvalId)"
+                            :key="skill.id"
+                            class="student-item-row"
+                          >
+                            <button
+                              class="picker-item student-item"
+                              :class="{ selected: skillDetailId === skill.id }"
+                              @click="skillDetailId = skill.id"
+                            >
+                              <span>{{ skill.name }}</span>
+                              <span
+                                class="row-checkbox"
+                                :class="{
+                                  checked: checkedSkillIds.has(skill.id),
+                                }"
+                                @click.stop="toggleChecked(skill.id, 'skill')"
+                              >
+                                <Check
+                                  v-if="checkedSkillIds.has(skill.id)"
+                                  :size="24"
+                                  :stroke-width="3"
+                                />
+                              </span>
+                            </button>
+                          </div>
+                          <div
+                            v-if="!getSkillsForEval(selectedEvalId)?.length"
+                            class="picker-empty"
+                          >
+                            Aucune habileté dans cette activité
+                          </div>
+                        </div>
+                      </div>
+                    </Transition>
+                  </div>
+
+                  <!-- Column 3: Skill details (when editing) -->
+                  <Transition name="fade-slide" mode="out-in">
+                    <div
+                      v-if="skillDetailId !== null && skillDetailData"
+                      :key="skillDetailId"
+                      class="student-detail-column"
+                    >
+                      <!-- Navigation bar -->
+                      <div class="detail-nav-bar detail-nav-bar--inline">
+                        <button class="back-btn" @click="skillDetailId = null">
+                          <ChevronLeft :size="36" :stroke-width="3" />
+                        </button>
+                        <div class="detail-actions">
+                          <button
+                            class="header-trash-btn"
+                            title="Supprimer l'habileté"
+                            @click="deleteSkillFromDetail"
+                          >
+                            <Trash2 :size="24" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="student-detail-layout">
+                        <!-- Icon picker -->
+                        <div class="student-detail-photo">
+                          <div
+                            class="student-photo-circle"
+                            :class="{ 'picker-open': showSkillIconPicker }"
+                            @click="showSkillIconPicker = !showSkillIconPicker"
+                            title="Choisir une icône"
+                          >
+                            <img
+                              v-if="
+                                skillDetailEditing?.icon ||
+                                skillDetailData?.icon
+                              "
+                              :src="`${BASE}icons/skills/${skillDetailEditing?.icon || skillDetailData?.icon}.svg`"
+                              class="skill-icon-img"
+                              alt=""
+                            />
+                            <span v-else class="student-photo-initials">?</span>
+                          </div>
+                        </div>
+
+                        <!-- Right column: fields -->
+                        <div class="student-detail-fields">
+                          <div class="detail-section">
+                            <label class="detail-label">Nom</label>
+                            <input
+                              v-model="skillDetailEditing.name"
+                              class="detail-input"
+                              placeholder="Nom de l'habileté"
+                              @blur="saveSkillDetail"
+                            />
+                          </div>
+                          <div class="detail-section">
+                            <label class="detail-label">Échelle</label>
+                            <div class="skill-range-config">
+                              <RangeInput
+                                v-model:value="editingNewSkillMin"
+                                :min="0"
+                                label="Min"
+                                size="small"
+                                @change="
+                                  () => {
+                                    updateScaleFromInputs();
+                                    saveSkillDetail();
+                                  }
+                                "
+                              />
+                              <RangeInput
+                                v-model:value="editingNewSkillMax"
+                                :min="editingNewSkillMin + editingNewSkillStep"
+                                label="Max"
+                                size="small"
+                                @change="
+                                  () => {
+                                    updateScaleFromInputs();
+                                    saveSkillDetail();
+                                  }
+                                "
+                              />
+                              <RangeInput
+                                v-model:value="editingNewSkillStep"
+                                :min="0.1"
+                                label="Pas"
+                                size="small"
+                                @change="
+                                  () => {
+                                    updateScaleFromInputs();
+                                    saveSkillDetail();
+                                  }
+                                "
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Icon picker dropdown -->
+                      <div v-if="showSkillIconPicker" class="icon-picker">
+                        <div class="icon-picker-search">
+                          <input
+                            v-model="iconPickerSearch"
+                            class="icon-picker-input"
+                            placeholder="Chercher une icône…"
+                            autofocus
+                          />
+                        </div>
+                        <div class="icon-picker-grid">
+                          <button
+                            v-for="iconName in filteredSkillIcons"
+                            :key="iconName"
+                            class="icon-picker-option"
+                            :class="{
+                              selected: skillDetailEditing.icon === iconName,
+                            }"
+                            @click="selectSkillIcon(iconName)"
+                          >
+                            <img
+                              :src="`${BASE}icons/skills/${iconName}.svg`"
+                              class="icon-picker-img"
+                              alt=""
+                            />
+                          </button>
                         </div>
                       </div>
                     </div>
                   </Transition>
                 </div>
-
-                <!-- Column 3: Skill details (when editing) -->
-                <Transition name="fade-slide" mode="out-in">
-                  <div
-                    v-if="skillDetailId !== null && skillDetailData"
-                    :key="skillDetailId"
-                    class="student-detail-column"
-                  >
-                    <!-- Navigation bar -->
-                    <div class="detail-nav-bar detail-nav-bar--inline">
-                      <button class="back-btn" @click="skillDetailId = null">
-                        <ChevronLeft :size="36" :stroke-width="3" />
-                      </button>
-                      <div class="detail-actions">
-                        <button
-                          class="header-trash-btn"
-                          title="Supprimer l'habileté"
-                          @click="deleteSkillFromDetail"
-                        >
-                          <Trash2 :size="24" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div class="student-detail-layout">
-                      <!-- Icon picker -->
-                      <div class="student-detail-photo">
-                        <div
-                          class="student-photo-circle"
-                          :class="{ 'picker-open': showSkillIconPicker }"
-                          @click="showSkillIconPicker = !showSkillIconPicker"
-                          title="Choisir une icône"
-                        >
-                          <img
-                            v-if="
-                              skillDetailEditing?.icon || skillDetailData?.icon
-                            "
-                            :src="`${BASE}icons/skills/${skillDetailEditing?.icon || skillDetailData?.icon}.svg`"
-                            class="skill-icon-img"
-                            alt=""
-                          />
-                          <span v-else class="student-photo-initials">?</span>
-                        </div>
-                      </div>
-
-                      <!-- Right column: fields -->
-                      <div class="student-detail-fields">
-                        <div class="detail-section">
-                          <label class="detail-label">Nom</label>
-                          <input
-                            v-model="skillDetailEditing.name"
-                            class="detail-input"
-                            placeholder="Nom de l'habileté"
-                            @blur="saveSkillDetail"
-                          />
-                        </div>
-                        <div class="detail-section">
-                          <label class="detail-label">Échelle</label>
-                          <div class="skill-range-config">
-                            <RangeInput
-                              v-model:value="editingNewSkillMin"
-                              :min="0"
-                              label="Min"
-                              size="small"
-                              @change="
-                                () => {
-                                  updateScaleFromInputs();
-                                  saveSkillDetail();
-                                }
-                              "
-                            />
-                            <RangeInput
-                              v-model:value="editingNewSkillMax"
-                              :min="editingNewSkillMin + editingNewSkillStep"
-                              label="Max"
-                              size="small"
-                              @change="
-                                () => {
-                                  updateScaleFromInputs();
-                                  saveSkillDetail();
-                                }
-                              "
-                            />
-                            <RangeInput
-                              v-model:value="editingNewSkillStep"
-                              :min="0.1"
-                              label="Pas"
-                              size="small"
-                              @change="
-                                () => {
-                                  updateScaleFromInputs();
-                                  saveSkillDetail();
-                                }
-                              "
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Icon picker dropdown -->
-                    <div v-if="showSkillIconPicker" class="icon-picker">
-                      <div class="icon-picker-search">
-                        <input
-                          v-model="iconPickerSearch"
-                          class="icon-picker-input"
-                          placeholder="Chercher une icône…"
-                          autofocus
-                        />
-                      </div>
-                      <div class="icon-picker-grid">
-                        <button
-                          v-for="iconName in filteredSkillIcons"
-                          :key="iconName"
-                          class="icon-picker-option"
-                          :class="{
-                            selected: skillDetailEditing.icon === iconName,
-                          }"
-                          @click="selectSkillIcon(iconName)"
-                        >
-                          <img
-                            :src="`${BASE}icons/skills/${iconName}.svg`"
-                            class="icon-picker-img"
-                            alt=""
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </Transition>
               </div>
             </div>
           </div>
 
-          <!-- Report modal -->
+          <!-- Report modal Rapport-->
           <div
             v-else-if="isReportModalOpen"
             key="report"
             class="picker-panel report-modal picker-panel--full"
           >
-            <div class="picker-panel-header">
-              <div class="header-left">
-                <button
-                  v-if="reportSelectedStudentId"
-                  class="back-btn"
-                  @click="reportSelectedStudentId = null"
-                >
-                  <ChevronLeft :size="36" :stroke-width="3" />
-                </button>
-                <span v-if="reportSelectedStudent">{{
-                  reportSelectedStudent.firstname +
-                  " " +
-                  reportSelectedStudent.lastname
-                }}</span>
-                <span v-else>Rapport</span>
-              </div>
-              <div class="header-actions">
-                <button
-                  class="export-btn"
-                  :disabled="!reportData"
-                  title="Exporter en CSV"
-                  @click="exportReport"
-                >
-                  <Download :size="22" />
-                </button>
-                <button class="close-btn" @click="toggleModal('report')">
-                  <ChevronUp :size="36" :stroke-width="3" />
-                </button>
-              </div>
-            </div>
-
-            <div class="report-body">
-              <div v-if="reportLoading" class="report-loading">Chargement…</div>
-              <div v-else-if="!reportData" class="report-empty">
-                Aucune donnée.
-              </div>
-              <template v-else>
-                <Transition name="slide-edit" mode="out-in">
-                  <!-- Student detail: chart + sessions × skills table -->
-                  <div
-                    v-if="reportSelectedStudentId && reportSelectedStudent"
-                    :key="'detail-' + reportSelectedStudentId"
-                    class="report-student-detail"
+            <div class="class-modal-body">
+              <div class="class-modal-content">
+                <aside class="class-modal-rail" aria-label="Actions de classe">
+                  <button
+                    class="class-modal-rail-button close"
+                    title="Fermer"
+                    @click="toggleModal('report')"
                   >
-                    <div class="report-chart" v-if="studentChartData">
-                      <div class="report-chart-title">Progression</div>
-                      <svg
-                        class="report-chart-svg"
-                        viewBox="0 0 600 240"
-                        preserveAspectRatio="xMidYMid meet"
+                    <ChevronUp :size="28" :stroke-width="3" />
+                  </button>
+                  <button
+                    class="export-btn"
+                    :disabled="!reportData"
+                    title="Exporter en CSV"
+                    @click="exportReport"
+                  >
+                    <Download :size="22" />
+                  </button>
+                </aside>
+                <div class="report-body">
+                  <div v-if="reportLoading" class="report-loading">
+                    Chargement…
+                  </div>
+                  <div v-else-if="!reportData" class="report-empty">
+                    Aucune donnée.
+                  </div>
+                  <template v-else>
+                    <Transition name="slide-edit" mode="out-in">
+                      <!-- Student detail: chart + sessions × skills table -->
+                      <div
+                        v-if="reportSelectedStudentId && reportSelectedStudent"
+                        :key="'detail-' + reportSelectedStudentId"
+                        class="report-student-detail"
                       >
-                        <!-- Grid lines -->
-                        <line
-                          v-for="n in 4"
-                          :key="'grid' + n"
-                          :x1="50"
-                          :y1="
-                            chartY(
-                              studentChartData.yAxisMin +
-                                ((studentChartData.yAxisMax -
-                                  studentChartData.yAxisMin) *
-                                  n) /
-                                  4,
-                              studentChartData.yAxisMin,
-                              studentChartData.yAxisMax,
-                            )
-                          "
-                          :x2="570"
-                          :y2="
-                            chartY(
-                              studentChartData.yAxisMin +
-                                ((studentChartData.yAxisMax -
-                                  studentChartData.yAxisMin) *
-                                  n) /
-                                  4,
-                              studentChartData.yAxisMin,
-                              studentChartData.yAxisMax,
-                            )
-                          "
-                          stroke="rgba(38,70,83,0.08)"
-                          stroke-width="1"
-                        />
-                        <!-- Y-axis labels -->
-                        <text
-                          v-for="n in 5"
-                          :key="'yl' + n"
-                          :x="45"
-                          :y="
-                            chartY(
-                              studentChartData.yAxisMin +
-                                ((studentChartData.yAxisMax -
-                                  studentChartData.yAxisMin) *
-                                  (n - 1)) /
-                                  4,
-                              studentChartData.yAxisMin,
-                              studentChartData.yAxisMax,
-                            ) + 4
-                          "
-                          text-anchor="end"
-                          class="chart-axis-label"
-                        >
-                          {{
-                            (
-                              studentChartData.yAxisMin +
-                              ((studentChartData.yAxisMax -
-                                studentChartData.yAxisMin) *
-                                (n - 1)) /
-                                4
-                            ).toFixed(1)
-                          }}
-                        </text>
-                        <!-- Lines -->
-                        <path
-                          v-for="ds in studentChartData.datasets"
-                          :key="ds.skill.id"
-                          :d="
-                            chartPath(
-                              ds.data,
-                              studentChartData.yAxisMin,
-                              studentChartData.yAxisMax,
-                            )
-                          "
-                          :stroke="ds.color"
-                          stroke-width="2"
-                          fill="none"
-                          stroke-linejoin="round"
-                          stroke-linecap="round"
-                        />
-                        <!-- Dots -->
-                        <g
-                          v-for="(ds, di) in studentChartData.datasets"
-                          :key="'dots' + di"
-                        >
-                          <template
-                            v-for="(val, si) in ds.data"
-                            :key="'d' + di + '-' + si"
+                        <div class="report-chart" v-if="studentChartData">
+                          <div class="report-chart-title">Progression</div>
+                          <svg
+                            class="report-chart-svg"
+                            viewBox="0 0 600 240"
+                            preserveAspectRatio="xMidYMid meet"
                           >
-                            <circle
-                              v-if="val != null"
-                              :cx="chartX(si, studentChartData.sessions.length)"
-                              :cy="
+                            <!-- Grid lines -->
+                            <line
+                              v-for="n in 4"
+                              :key="'grid' + n"
+                              :x1="50"
+                              :y1="
                                 chartY(
-                                  val,
+                                  studentChartData.yAxisMin +
+                                    ((studentChartData.yAxisMax -
+                                      studentChartData.yAxisMin) *
+                                      n) /
+                                      4,
                                   studentChartData.yAxisMin,
                                   studentChartData.yAxisMax,
                                 )
                               "
-                              :r="3"
-                              :fill="ds.color"
+                              :x2="570"
+                              :y2="
+                                chartY(
+                                  studentChartData.yAxisMin +
+                                    ((studentChartData.yAxisMax -
+                                      studentChartData.yAxisMin) *
+                                      n) /
+                                      4,
+                                  studentChartData.yAxisMin,
+                                  studentChartData.yAxisMax,
+                                )
+                              "
+                              stroke="rgba(38,70,83,0.08)"
+                              stroke-width="1"
                             />
-                          </template>
-                        </g>
-                        <!-- X-axis labels -->
-                        <text
-                          v-for="(s, i) in studentChartData.sessions"
-                          :key="'xl' + i"
-                          :x="chartX(i, studentChartData.sessions.length)"
-                          y="200"
-                          text-anchor="middle"
-                          class="chart-axis-label chart-axis-label-x"
-                        >
-                          {{ formatDateShort(s.started_at) }}
-                        </text>
-                      </svg>
-                      <!-- Legend -->
-                      <div class="chart-legend">
-                        <span
-                          v-for="ds in studentChartData.datasets"
-                          :key="ds.skill.id"
-                          class="chart-legend-item"
-                        >
-                          <span
-                            class="chart-legend-dot"
-                            :style="{ background: ds.color }"
-                          ></span>
-                          {{ ds.skill.name }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <table class="report-detail-table">
-                      <thead>
-                        <tr>
-                          <th class="detail-th-date">Date</th>
-                          <th
-                            v-for="skill in reportData.skills"
-                            :key="skill.id"
-                            class="detail-th-skill"
-                          >
-                            {{ skill.name }}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="event in getStudentEvents(
-                            reportSelectedStudent.id,
-                          )"
-                          :key="event.id"
-                        >
-                          <td class="detail-td-date">
-                            {{ formatDateTime(event.created_at) }}
-                          </td>
-                          <td
-                            v-for="skill in reportData.skills"
-                            :key="skill.id"
-                            class="detail-td-level"
-                          >
-                            <template v-if="event.skill_id === skill.id">
-                              {{ event.level }}
-                            </template>
-                            <span v-else class="stats-na">—</span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <!-- Report table (list) -->
-                  <div v-else key="list">
-                    <div
-                      v-if="reportData.students.length === 0"
-                      class="report-empty"
-                    >
-                      Aucun élève dans cette sélection.
-                    </div>
-                    <template v-else>
-                      <table class="report-table">
-                        <thead>
-                          <tr>
-                            <th class="report-th-student">Élève</th>
-                            <th
-                              v-for="skill in reportData.skills"
-                              :key="skill.id"
-                              class="report-th-skill-col"
+                            <!-- Y-axis labels -->
+                            <text
+                              v-for="n in 5"
+                              :key="'yl' + n"
+                              :x="45"
+                              :y="
+                                chartY(
+                                  studentChartData.yAxisMin +
+                                    ((studentChartData.yAxisMax -
+                                      studentChartData.yAxisMin) *
+                                      (n - 1)) /
+                                      4,
+                                  studentChartData.yAxisMin,
+                                  studentChartData.yAxisMax,
+                                ) + 4
+                              "
+                              text-anchor="end"
+                              class="chart-axis-label"
                             >
-                              {{ skill.name }}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <template
-                            v-for="group in reportStudentsByClass"
-                            :key="group.classId"
-                          >
-                            <!-- Class header row -->
-                            <tr class="report-class-header">
-                              <td colspan="100%">
-                                {{ group.className }}
-                              </td>
-                            </tr>
-                            <tr
-                              v-for="student in group.students"
-                              :key="student.id"
+                              {{
+                                (
+                                  studentChartData.yAxisMin +
+                                  ((studentChartData.yAxisMax -
+                                    studentChartData.yAxisMin) *
+                                    (n - 1)) /
+                                    4
+                                ).toFixed(1)
+                              }}
+                            </text>
+                            <!-- Lines -->
+                            <path
+                              v-for="ds in studentChartData.datasets"
+                              :key="ds.skill.id"
+                              :d="
+                                chartPath(
+                                  ds.data,
+                                  studentChartData.yAxisMin,
+                                  studentChartData.yAxisMax,
+                                )
+                              "
+                              :stroke="ds.color"
+                              stroke-width="2"
+                              fill="none"
+                              stroke-linejoin="round"
+                              stroke-linecap="round"
+                            />
+                            <!-- Dots -->
+                            <g
+                              v-for="(ds, di) in studentChartData.datasets"
+                              :key="'dots' + di"
                             >
-                              <td
-                                class="report-td-student report-td-student--clickable"
-                                @click="reportSelectedStudentId = student.id"
+                              <template
+                                v-for="(val, si) in ds.data"
+                                :key="'d' + di + '-' + si"
                               >
-                                {{ formatStudentName(student) }}
+                                <circle
+                                  v-if="val != null"
+                                  :cx="
+                                    chartX(si, studentChartData.sessions.length)
+                                  "
+                                  :cy="
+                                    chartY(
+                                      val,
+                                      studentChartData.yAxisMin,
+                                      studentChartData.yAxisMax,
+                                    )
+                                  "
+                                  :r="3"
+                                  :fill="ds.color"
+                                />
+                              </template>
+                            </g>
+                            <!-- X-axis labels -->
+                            <text
+                              v-for="(s, i) in studentChartData.sessions"
+                              :key="'xl' + i"
+                              :x="chartX(i, studentChartData.sessions.length)"
+                              y="200"
+                              text-anchor="middle"
+                              class="chart-axis-label chart-axis-label-x"
+                            >
+                              {{ formatDateShort(s.started_at) }}
+                            </text>
+                          </svg>
+                          <!-- Legend -->
+                          <div class="chart-legend">
+                            <span
+                              v-for="ds in studentChartData.datasets"
+                              :key="ds.skill.id"
+                              class="chart-legend-item"
+                            >
+                              <span
+                                class="chart-legend-dot"
+                                :style="{ background: ds.color }"
+                              ></span>
+                              {{ ds.skill.name }}
+                            </span>
+                          </div>
+                        </div>
+
+                        <table class="report-detail-table">
+                          <thead>
+                            <tr>
+                              <th class="detail-th-date">Date</th>
+                              <th
+                                v-for="skill in reportData.skills"
+                                :key="skill.id"
+                                class="detail-th-skill"
+                              >
+                                {{ skill.name }}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr
+                              v-for="event in getStudentEvents(
+                                reportSelectedStudent.id,
+                              )"
+                              :key="event.id"
+                            >
+                              <td class="detail-td-date">
+                                {{ formatDateTime(event.created_at) }}
                               </td>
                               <td
                                 v-for="skill in reportData.skills"
                                 :key="skill.id"
-                                class="report-td-count"
+                                class="detail-td-level"
                               >
-                                <template
-                                  v-if="
-                                    studentSkillCount(student.id, skill.id) > 0
-                                  "
-                                >
-                                  <div class="skill-stats">
-                                    <span
-                                      v-if="
-                                        studentSkillLast(
-                                          student.id,
-                                          skill.id,
-                                        ) != null
-                                      "
-                                      class="stat-latest"
-                                    >
-                                      <span class="stat-latest-value">{{
-                                        studentSkillLast(student.id, skill.id)
-                                      }}</span>
-                                    </span>
-                                    <span class="stat-group">
-                                      <span class="stat-item"
-                                        ><Eye :size="11" />
-                                        <span class="stat-val">{{
-                                          studentSkillCount(
-                                            student.id,
-                                            skill.id,
-                                          )
-                                        }}</span></span
-                                      >
-                                      <span class="stat-item stat-tri"
-                                        ><span class="tri-down">▼</span>
-                                        <span class="stat-val">{{
-                                          fmtNum(
-                                            studentSkillMin(
-                                              student.id,
-                                              skill.id,
-                                            ),
-                                          )
-                                        }}</span></span
-                                      >
-                                      <span class="stat-item stat-tri"
-                                        ><span class="tri-up">▲</span>
-                                        <span class="stat-val">{{
-                                          fmtNum(
-                                            studentSkillMax(
-                                              student.id,
-                                              skill.id,
-                                            ),
-                                          )
-                                        }}</span></span
-                                      >
-                                      <span class="stat-item"
-                                        ><span class="stat-tilde">~</span>
-                                        <span class="stat-val">{{
-                                          fmtNum(
-                                            studentSkillAvg(
-                                              student.id,
-                                              skill.id,
-                                            ),
-                                          )
-                                        }}</span></span
-                                      >
-                                    </span>
-                                  </div>
+                                <template v-if="event.skill_id === skill.id">
+                                  {{ event.level }}
                                 </template>
-                                <span v-else class="stats-na">N/A</span>
+                                <span v-else class="stats-na">—</span>
                               </td>
                             </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </template>
-                  </div>
-                </Transition>
-              </template>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <!-- Report table (list) -->
+                      <div v-else key="list">
+                        <div
+                          v-if="reportData.students.length === 0"
+                          class="report-empty"
+                        >
+                          Aucun élève dans cette sélection.
+                        </div>
+                        <template v-else>
+                          <table class="report-table">
+                            <thead>
+                              <tr>
+                                <th class="report-th-student">Élève</th>
+                                <th
+                                  v-for="skill in reportData.skills"
+                                  :key="skill.id"
+                                  class="report-th-skill-col"
+                                >
+                                  {{ skill.name }}
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <template
+                                v-for="group in reportStudentsByClass"
+                                :key="group.classId"
+                              >
+                                <!-- Class header row -->
+
+                                <tr
+                                  v-for="student in group.students"
+                                  :key="student.id"
+                                >
+                                  <td
+                                    class="report-td-student report-td-student--clickable"
+                                    @click="
+                                      reportSelectedStudentId = student.id
+                                    "
+                                  >
+                                    {{ formatStudentFullName(student) }}
+                                  </td>
+                                  <td
+                                    v-for="skill in reportData.skills"
+                                    :key="skill.id"
+                                    class="report-td-count"
+                                  >
+                                    <template
+                                      v-if="
+                                        studentSkillCount(
+                                          student.id,
+                                          skill.id,
+                                        ) > 0
+                                      "
+                                    >
+                                      <div class="skill-stats">
+                                        <span
+                                          v-if="
+                                            studentSkillLast(
+                                              student.id,
+                                              skill.id,
+                                            ) != null
+                                          "
+                                          class="stat-latest"
+                                        >
+                                          <span class="stat-latest-value">{{
+                                            studentSkillLast(
+                                              student.id,
+                                              skill.id,
+                                            )
+                                          }}</span>
+                                        </span>
+                                        <span class="stat-group">
+                                          <span class="stat-item"
+                                            ><Eye :size="11" />
+                                            <span class="stat-val">{{
+                                              studentSkillCount(
+                                                student.id,
+                                                skill.id,
+                                              )
+                                            }}</span></span
+                                          >
+                                          <span class="stat-item stat-tri"
+                                            ><span class="tri-down">▼</span>
+                                            <span class="stat-val">{{
+                                              fmtNum(
+                                                studentSkillMin(
+                                                  student.id,
+                                                  skill.id,
+                                                ),
+                                              )
+                                            }}</span></span
+                                          >
+                                          <span class="stat-item stat-tri"
+                                            ><span class="tri-up">▲</span>
+                                            <span class="stat-val">{{
+                                              fmtNum(
+                                                studentSkillMax(
+                                                  student.id,
+                                                  skill.id,
+                                                ),
+                                              )
+                                            }}</span></span
+                                          >
+                                          <span class="stat-item"
+                                            ><span class="stat-tilde">~</span>
+                                            <span class="stat-val">{{
+                                              fmtNum(
+                                                studentSkillAvg(
+                                                  student.id,
+                                                  skill.id,
+                                                ),
+                                              )
+                                            }}</span></span
+                                          >
+                                        </span>
+                                      </div>
+                                    </template>
+                                    <span v-else class="stats-na">N/A</span>
+                                  </td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </template>
+                      </div>
+                    </Transition>
+                  </template>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3691,16 +3745,30 @@ defineExpose({
             key="teams"
             class="picker-panel class-modal picker-panel--full team-modal-bg"
           >
-            <button class="close-modal-btn" @click="toggleModal('teams')">
-              <ChevronUp :size="36" :stroke-width="3" />
-            </button>
-
             <div class="class-modal-body">
-              <TeamSetup
-                :students="currentStudents"
-                @done="onTeamsCreated"
-                @cancel="toggleModal('teams')"
-              />
+              <div class="class-modal-content">
+                <aside class="class-modal-rail" aria-label="Actions de classe">
+                  <button
+                    class="class-modal-rail-button close"
+                    title="Fermer"
+                    @click="toggleModal('teams')"
+                  >
+                    <ChevronUp :size="28" :stroke-width="3" />
+                  </button>
+                  <!-- <button
+                    class="class-modal-rail-button"
+                    title="Importer des élèves"
+                    @click="openStudentImport"
+                  >
+                    <Upload :size="24" :stroke-width="2.5" />
+                  </button> -->
+                </aside>
+                <TeamSetup
+                  :students="currentStudents"
+                  @done="onTeamsCreated"
+                  @cancel="toggleModal('teams')"
+                />
+              </div>
             </div>
           </div>
         </Transition>
@@ -4104,7 +4172,7 @@ textarea {
   width: 100px;
   border: 2px solid transparent;
   border-radius: 18px;
-  padding: 0.8rem 2rem;
+  padding: 0.8rem 0.5rem;
   margin-bottom: 3px;
   color: var(--text-light);
   background: rgba(0, 0, 0, 0.3);
@@ -4115,6 +4183,17 @@ textarea {
   justify-content: center;
   gap: 6px;
   transition: all 0.2s;
+}
+
+.fab svg {
+  flex-shrink: 0;
+}
+
+.fab-selected-name {
+  flex-shrink: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fab:disabled {
@@ -4316,11 +4395,6 @@ textarea {
   background: var(--team-gray);
 }
 
-.eval-bg .picker-item.selected {
-  /* background: rgba(26, 14, 4, 0.12); */
-  /* background: rgba(26, 14, 4, 0.15); */
-  /* border-color: transparent; */
-}
 .eval-bg .row-checkbox {
   border-color: var(--text-light);
   opacity: 0.6;
@@ -4549,13 +4623,6 @@ textarea {
   cursor: default;
 }
 
-.drop-zone:first-child {
-  /* margin-top: 8px; */
-}
-.drop-zone:last-child {
-  /* margin-bottom: 8px; */
-}
-
 .zone-header {
   text-align: center;
   padding: 8px;
@@ -4615,12 +4682,6 @@ textarea {
   /* opacity: 0.85; */
 }
 
-/* Zone: hover (has prior evals) */
-.zone-hover-prior {
-  /* border-color: rgba(255, 200, 80, 0.45);
-  background: rgba(30, 16, 3, 0.5);
-  border-style: solid; */
-}
 .zone-hover-prior .zone-name {
   color: var(--text-light);
   /* opacity: 0.7; */
@@ -4768,9 +4829,7 @@ textarea {
 .panel-drawer-enter-active {
   transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.panel-drawer-leave-active {
-  /* transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); */
-}
+
 .panel-drawer-enter-from,
 .panel-drawer-leave-to {
   transform: translateY(-50%);
@@ -4812,10 +4871,13 @@ textarea {
 }
 
 .class-modal-content {
+  width: 100%;
   display: flex;
   gap: 0.65rem;
   height: 100%;
   min-height: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .class-modal-rail {
@@ -5171,15 +5233,12 @@ textarea {
   display: flex;
   flex-direction: column;
   max-width: 100%;
+  .class-modal-body {
+    max-width: 100%;
+    display: flex;
+  }
 }
 
-.report-modal > .report-body,
-.report-modal > .picker-panel-header {
-  max-width: 100%;
-}
-.report-modal .picker-panel-header {
-  color: var(--court-blue);
-}
 .report-modal .close-btn {
   color: var(--court-blue);
   border-color: var(--court-blue);
@@ -5188,7 +5247,9 @@ textarea {
 .report-modal .back-btn {
   color: var(--court-blue);
 }
-
+.report-modal button {
+  color: var(--court-blue);
+}
 .export-btn {
   background: none;
   border: none;
@@ -5212,8 +5273,8 @@ textarea {
 }
 
 .report-body {
-  padding: 0.5rem 1rem 1.5rem;
-  overflow-y: auto;
+  padding: 0;
+  overflow: auto;
   flex: 1;
 }
 
@@ -5283,26 +5344,39 @@ textarea {
   border-collapse: collapse;
   margin-bottom: 1.5rem;
   font-size: 0.82rem;
+  table-layout: fixed;
 }
 
 .report-table th,
 .report-table td {
   padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(38, 70, 83, 0.15);
   text-align: center;
 }
 
 .report-table thead th {
+  border-right: 1px solid white;
   background: rgba(38, 70, 83, 0.08);
   color: var(--court-blue);
   font-weight: 700;
   font-size: 1.1rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 80px;
   /* letter-spacing: 0.05em; */
 }
 
+.report-table thead th:first-child {
+  border-top-left-radius: 18px;
+}
+
+.report-table thead th:last-child {
+  border-top-right-radius: 18px;
+}
+
 .report-table .report-th-student {
-  min-width: 120px;
   text-align: left;
+  width: 1%;
 }
 
 /* ── Class header row in report ─────────────────── */
@@ -5323,8 +5397,8 @@ textarea {
 }
 
 .report-th-skill-col {
-  min-width: 60px;
   text-align: center;
+  width: 1%;
 }
 
 .report-table .report-td-student {
@@ -5333,12 +5407,17 @@ textarea {
   font-weight: 600;
 }
 
+/* ── Alternating row backgrounds ──────────────── */
+.report-table tbody tr:not(.report-class-header):nth-child(even) {
+  background: rgba(38, 70, 83, 0.04);
+}
+
 .report-td-count {
   color: var(--court-blue);
   font-weight: 600;
   font-size: 0.85rem;
   text-align: center;
-  min-width: 150px;
+  /* min-width: 150px; */
 }
 
 /* ── Skill cell stats ────────────────────────────── */
@@ -5601,11 +5680,6 @@ textarea {
   flex: 1;
   overflow-y: auto;
 }
-.picker-panel--full > .picker-panel-header {
-  width: 100%;
-  max-width: 100%;
-  flex-shrink: 0;
-}
 
 .picker-screen--modal {
   margin: 0;
@@ -5613,18 +5687,6 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: 0;
-}
-.picker-panel-header {
-  padding-top: 1.2rem;
-  padding-left: 2.4rem;
-  padding-right: 1.2rem;
-  /* padding: 1.2rem 1rem 0.6rem; */
-  font-size: 1.7rem;
-  font-weight: 700;
-  color: var(--text-light);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .header-actions {
@@ -5704,9 +5766,6 @@ textarea {
 .folder-row {
   cursor: pointer;
 }
-.folder-row.expanded {
-  /* background: #a8dadc80; */
-}
 
 .picker-item.folder-row.expanded {
   flex-direction: column;
@@ -5739,8 +5798,6 @@ textarea {
 }
 
 /* ── Nested items (expanded children) ────────────── */
-.nested-items {
-}
 
 .picker-item--nested {
   font-size: 1rem;
@@ -5855,6 +5912,14 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.student-photo-img {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  object-fit: cover;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 

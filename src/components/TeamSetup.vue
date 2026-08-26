@@ -557,7 +557,7 @@ function getTeamColor(teamIndex) {
       <!-- Left Column: Settings (1/3) -->
       <div class="settings-column">
         <div class="setting-group">
-          <label class="setting-label">Mode de création</label>
+          <h3 class="setting-label">Équipes</h3>
           <div class="radio-group">
             <label class="radio-option">
               <input
@@ -566,7 +566,7 @@ function getTeamColor(teamIndex) {
                 value="count"
                 @change="generateTeams"
               />
-              Nombre d'équipes
+              Par nombre
             </label>
             <label class="radio-option">
               <input
@@ -575,7 +575,7 @@ function getTeamColor(teamIndex) {
                 value="size"
                 @change="generateTeams"
               />
-              Taille des équipes
+              Par taille
             </label>
           </div>
 
@@ -633,7 +633,6 @@ function getTeamColor(teamIndex) {
 
           <!-- Gender grouping sub-options -->
           <div v-if="separationMethod === 'gender'" class="sub-options">
-            <label class="sub-option-label">Regroupement</label>
             <div class="radio-group radio-group--small">
               <label class="radio-option radio-option--small">
                 <input
@@ -642,7 +641,7 @@ function getTeamColor(teamIndex) {
                   value="separate"
                   @change="generateTeams"
                 />
-                Séparer les genres
+                Séparer
               </label>
               <label class="radio-option radio-option--small">
                 <input
@@ -651,7 +650,7 @@ function getTeamColor(teamIndex) {
                   value="mix"
                   @change="generateTeams"
                 />
-                Mélanger les genres
+                Mélanger
               </label>
             </div>
           </div>
@@ -808,16 +807,18 @@ function getTeamColor(teamIndex) {
 }
 
 .setting-label {
-  font-size: 0.85rem;
+  /* font-size: 0.85rem; */
   font-weight: 700;
   color: var(--text-light);
-  opacity: 0.7;
-  text-transform: uppercase;
+  /* opacity: 0.7; */
+  /* text-transform: uppercase; */
   letter-spacing: 0.05em;
 }
 
 .radio-group {
   display: flex;
+  width: 100%;
+
   /* flex-direction: column; */
   gap: 0.5rem;
 }
@@ -848,8 +849,10 @@ function getTeamColor(teamIndex) {
 }
 
 .radio-option {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   font-size: 1rem;
   font-weight: 600;
@@ -925,7 +928,7 @@ function getTeamColor(teamIndex) {
   outline: none;
   transition: all 0.2s;
   text-align: center;
-  -moz-appearance: textfield;
+  /* -moz-appearance: textfield; */
 }
 
 .number-input-field::-webkit-outer-spin-button,
