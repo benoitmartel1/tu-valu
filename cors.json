@@ -1,7 +1,10 @@
 {
   "CORSRules": [
     {
-      "AllowedOrigins": ["http://localhost:5173", "https://dev.benoitmartel.com"],
+      "AllowedOrigins": [
+        "http://localhost:5173",
+        "https://dev.benoitmartel.com"
+      ],
       "AllowedMethods": ["POST", "PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["ETag", "x-amz-version-id"],

@@ -14,6 +14,7 @@ const showAuthModal = ref(false);
 // Computed properties
 const isAuthenticated = computed(() => !!user.value);
 const userEmail = computed(() => user.value?.email || null);
+const userId = computed(() => user.value?.id || null);
 const userAppMetadata = computed(() => user.value?.user_metadata || {});
 
 // Check if user belongs to tu-valu app
@@ -118,6 +119,19 @@ export function showAuth() {
   showAuthModal.value = true;
 }
 
+// Export reactive references for use in components
+export {
+  user,
+  loading,
+  error,
+  showAuthModal,
+  isAuthenticated,
+  userEmail,
+  userId,
+  userAppMetadata,
+  isTuValuUser,
+};
+
 export function hideAuth() {
   showAuthModal.value = false;
 }
@@ -126,14 +140,3 @@ export function hideAuth() {
 export function clearError() {
   error.value = null;
 }
-
-export {
-  user,
-  loading,
-  error,
-  showAuthModal,
-  isAuthenticated,
-  userEmail,
-  userAppMetadata,
-  isTuValuUser,
-};

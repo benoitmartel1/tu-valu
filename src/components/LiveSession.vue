@@ -24,9 +24,9 @@ import {
   PenIcon,
   Component,
 } from "@lucide/vue";
-import { supabase } from "../supabase";
+import { supabase, getStudentPhotoPresignedUrl } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
-import { signOut, userEmail } from "../stores/auth";
+import { signOut, userEmail, userId } from "../stores/auth";
 
 const BASE = import.meta.env.BASE_URL; // "/tu-valu/"
 
@@ -160,6 +160,7 @@ const isAddingNewClass = ref(false);
 const classDetailId = ref(null); // null | 'new' | classId — opens ClassDetail view
 const studentDetailId = ref(null); // null | studentId — opens student detail view
 const studentDetailData = ref(null); // { id, firstname, lastname, gender, name_display_prefs } loaded from DB
+const studentDetailPhotoUrl = ref(null); // Presigned URL for student photo
 const studentImportOpen = ref(false);
 
 // Format student name based on their individual preferences
@@ -462,7 +463,7 @@ async function addNewClass() {
   if (!editingClassName.value.trim()) return;
   const { data } = await supabase
     .from("tu_classes")
-    .insert({ name: editingClassName.value })
+    .insert({ name: editingClassName.value, user_id: userId.value })
     .select();
   if (data && data[0]) {
     classes.value.push(data[0]);
@@ -583,6 +584,7 @@ async function handleAddStudentToClass(classId) {
       firstname: "Nouvel",
       lastname: "Élève",
       class_id: classId,
+      user_id: userId.value,
     })
     .select()
     .single();
@@ -607,7 +609,7 @@ async function handleAddNewClass() {
   // Create a new class with default name
   const { data, error } = await supabase
     .from("tu_classes")
-    .insert({ name: "Nouvelle classe" })
+    .insert({ name: "Nouvelle classe", user_id: userId.value })
     .select()
     .single();
 
@@ -647,7 +649,7 @@ async function handleAddNewEval() {
   // Create a new evaluation with default name
   const { data, error } = await supabase
     .from("tu_evaluations")
-    .insert({ title: "Nouvelle activité" })
+    .insert({ title: "Nouvelle activité", user_id: userId.value })
     .select()
     .single();
 
@@ -813,6 +815,12 @@ async function addSkill() {
     }
   } else {
     // Create new skill
+    const payload = {
+      name: skill.name.trim(),
+      scale: skill.scale,
+      evaluation_id: editingEvalId.value,
+      user_id: userId.value,
+    };
     const { data } = await supabase
       .from("tu_skills")
       .insert(payload)
@@ -833,6 +841,7 @@ async function saveSkill(skill, index) {
     name: skill.name.trim(),
     scale: skill.scale,
     evaluation_id: editingEvalId.value,
+    user_id: userId.value,
   };
   if (skill._temp || !skill.id) {
     // Insert
@@ -1240,6 +1249,7 @@ function onDragEnd() {
       team_id: teamsActive.value
         ? studentTeamMap.value[studentId] || null
         : null,
+      user_id: userId.value,
     };
     supabase
       .from("tu_session_events")
@@ -1585,6 +1595,7 @@ watch(studentDetailId, async (id) => {
   if (!id) {
     studentDetailData.value = null;
     studentDetailEditing.value = null;
+    studentDetailPhotoUrl.value = null;
     return;
   }
 
@@ -1612,6 +1623,22 @@ watch(studentDetailId, async (id) => {
       name: `${data.firstname} ${data.lastname}`,
       photo_url: data.photo_url,
     });
+
+    // If student has a photo_url, fetch presigned URL
+    if (data.photo_url) {
+      try {
+        const { presignedUrl } = await getStudentPhotoPresignedUrl(data.id);
+        if (presignedUrl) {
+          studentDetailPhotoUrl.value = presignedUrl;
+          console.log("Presigned URL fetched for student:", data.id);
+        }
+      } catch (error) {
+        console.error("Failed to get presigned URL:", error);
+        studentDetailPhotoUrl.value = null;
+      }
+    } else {
+      studentDetailPhotoUrl.value = null;
+    }
   } else {
     studentDetailData.value = {
       firstname: "",
@@ -1619,6 +1646,7 @@ watch(studentDetailId, async (id) => {
       gender: null,
     };
     studentDetailEditing.value = null;
+    studentDetailPhotoUrl.value = null;
     console.log("Student not found:", id);
   }
 });
@@ -2881,14 +2909,8 @@ defineExpose({
                         <!-- Photo placeholder -->
                         <div class="student-detail-photo">
                           <img
-                            v-if="
-                              studentDetailEditing?.photo_url ||
-                              studentDetailData?.photo_url
-                            "
-                            :src="
-                              studentDetailEditing?.photo_url ||
-                              studentDetailData?.photo_url
-                            "
+                            v-if="studentDetailPhotoUrl"
+                            :src="studentDetailPhotoUrl"
                             :alt="`${studentDetailEditing?.firstname || studentDetailData?.firstname} ${studentDetailEditing?.lastname || studentDetailData?.lastname}`"
                             class="student-photo-img"
                             @error="

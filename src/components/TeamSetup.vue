@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
 import RangeInput from "./RangeInput.vue";
+import { userId } from "../stores/auth";
 import "../styles/shared.css";
 
 const props = defineProps({
@@ -473,15 +474,6 @@ async function applyTeams() {
   error.value = null;
 
   try {
-    // Get current user ID
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error("User not authenticated");
-    }
-
     // Create teams in database
     const teamRecords = [];
     for (const team of generatedTeams.value) {
@@ -489,7 +481,7 @@ async function applyTeams() {
         .from("tu_teams")
         .insert({
           name: team.name,
-          user_id: user.id,
+          user_id: userId.value,
           color: team.color || null,
         })
         .select()

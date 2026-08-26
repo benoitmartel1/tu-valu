@@ -8,6 +8,7 @@ import {
   FileText,
 } from "@lucide/vue";
 import { supabase } from "../supabase";
+import { userId } from "../stores/auth";
 
 // Levenshtein distance function for fuzzy string matching
 function levenshteinDistance(str1, str2) {
@@ -249,7 +250,7 @@ async function importStudents() {
     if (missingGroups.length > 0) {
       const { data: createdClasses, error: classInsertError } = await supabase
         .from("tu_classes")
-        .insert(missingGroups.map((name) => ({ name })))
+        .insert(missingGroups.map((name) => ({ name, user_id: userId.value })))
         .select("id, name");
       if (classInsertError) throw classInsertError;
       for (const cls of createdClasses || [])
@@ -263,6 +264,7 @@ async function importStudents() {
       birth_date: student.birthDate,
       student_number: student.studentNumber, // Will be null if not provided
       class_id: classByName.get(student.group)?.id,
+      user_id: userId.value,
     }));
 
     // Insert students
@@ -739,19 +741,21 @@ async function uploadPictures() {
         const compressedFile = await compressImage(match.file);
 
         // Get POST policy and signature from PHP backend
-        const response = await fetch(
-          import.meta.env.BASE_URL + "api/generate-presigned-url.php",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              studentId: match.student.id,
-              filename: compressedFile.name,
-            }),
+        // Use /api/ prefix for local dev (proxied by Vite), full path for production
+        const apiUrl = import.meta.env.DEV
+          ? "/api/generate-presigned-url.php"
+          : import.meta.env.BASE_URL + "api/generate-presigned-url.php";
+
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify({
+            studentId: match.student.id,
+            filename: compressedFile.name,
+          }),
+        });
 
         if (!response.ok) {
           throw new Error(
@@ -786,7 +790,7 @@ async function uploadPictures() {
         formData.append("x-amz-date", date);
         formData.append("x-amz-signature", signature);
         formData.append("acl", "public-read");
-        formData.append("content-type", "image/jpeg");
+        formData.append("Content-Type", "image/jpeg");
         formData.append("file", compressedFile);
 
         const uploadResponse = await fetch(uploadUrl, {

@@ -142,6 +142,37 @@ export async function resetPassword(email) {
 
   return { data, error };
 }
+
+/**
+ * Get a presigned URL for viewing a private student photo
+ * @param {string} studentId - The UUID of the student
+ * @returns {Promise<{presignedUrl: string, expiresIn: number}>}
+ */
+export async function getStudentPhotoPresignedUrl(studentId) {
+  try {
+    const response = await fetch("/api/get-image-presigned-url.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ studentId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      presignedUrl: data.presignedUrl,
+      expiresIn: data.expiresIn,
+    };
+  } catch (error) {
+    console.error("Failed to get presigned URL:", error);
+    return { presignedUrl: null, expiresIn: 0 };
+  }
+}
+
 // Diagnostic function to check OAuth configuration
 export async function checkOAuthConfig() {
   console.log("=== OAuth Configuration Check ===");
