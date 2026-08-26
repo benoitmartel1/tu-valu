@@ -150,7 +150,12 @@ export async function resetPassword(email) {
  */
 export async function getStudentPhotoPresignedUrl(studentId) {
   try {
-    const response = await fetch("/api/get-image-presigned-url.php", {
+    // Use /api/ prefix for local dev (proxied by Vite), full path for production
+    const apiUrl = import.meta.env.DEV 
+      ? "/api/get-image-presigned-url.php"
+      : import.meta.env.BASE_URL + "api/get-image-presigned-url.php";
+    
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
