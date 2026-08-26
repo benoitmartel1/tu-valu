@@ -54,3 +54,16 @@ jobs:
             yarn.lock
             .vscode/**
             .github/**
+
+      - name: Create .env file on server
+        run: |
+          # Create .env content
+          ENV_CONTENT="OVH_S3_ENDPOINT=${{ secrets.OVH_S3_ENDPOINT }}
+          OVH_S3_BUCKET=${{ secrets.OVH_S3_BUCKET }}
+          OVH_S3_REGION=${{ secrets.OVH_S3_REGION }}
+          OVH_S3_ACCESS_KEY=${{ secrets.OVH_S3_ACCESS_KEY }}
+          OVH_S3_SECRET_KEY=${{ secrets.OVH_S3_SECRET_KEY }}"
+          
+          # Upload .env file via curl and FTP with authentication
+          echo "$ENV_CONTENT" > /tmp/api.env
+          curl -T /tmp/api.env "ftp://${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}@${{ secrets.FTP_HOST }}/www/dev/tu-valu/api/.env"
