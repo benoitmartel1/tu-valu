@@ -76,8 +76,8 @@ $date = gmdate('Ymd', $timestamp);
 $datetime = gmdate('Ymd\THis\Z', $timestamp);
 $expiration = gmdate('Y-m-d\TH:i:s\Z', $timestamp + $expires);
 
-// Canonical request - DO NOT urlencode the key in canonical URI
-$canonicalUri = '/' . $key;
+// Canonical request - URL encode the key in canonical URI
+$canonicalUri = '/' . rawurlencode($key);
 $canonicalQueryString = http_build_query([
     'X-Amz-Algorithm' => 'AWS4-HMAC-SHA256',
     'X-Amz-Credential' => OVH_S3_ACCESS_KEY . '/' . $date . '/' . OVH_S3_REGION . '/s3/aws4_request',
