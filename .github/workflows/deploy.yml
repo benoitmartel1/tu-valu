@@ -34,23 +34,3 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
           server-dir: /www/dev/tu-valu/
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            .env
-            .gitignore
-            README.md
-            PICTURE_IMPORT_IMPLEMENTATION.md
-            SUPABASE_SETUP.md
-            AUTHENTICATION_IMPLEMENTATION.md
-            QUICK_START_AUTH.md
-            MAGIC_LINK_TROUBLESHOOTING.md
-            OAUTH_SETUP_GUIDE.md
-            .instructions.md
-            vite.config.js
-            package.json
-            package-lock.json
-            yarn.lock
-            .vscode/**
-            .github/**

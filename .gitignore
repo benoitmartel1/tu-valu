@@ -35,3 +35,8 @@ api/.env.example
 supabase/migrations/20260826000000_add_student_number_and_photo_url.sql
 PICTURE_IMPORT_IMPLEMENTATION.md
 .github/SECRETS_SETUP.md
+.env.example
+AUTHENTICATION_IMPLEMENTATION.md
+MAGIC_LINK_TROUBLESHOOTING.md
+OAUTH_SETUP_GUIDE.md
+QUICK_START_AUTH.md
