@@ -43,3 +43,26 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./api/
           server-dir: /www/dev/tu-valu/api/
+
+      - name: Create and deploy .env file
+        run: |
+          mkdir -p api
+          cat > api/.env << 'EOF'
+          OVH_S3_ENDPOINT=https://s3.bhs.io.cloud.ovh.net
+          OVH_S3_BUCKET=young-blackett
+          OVH_S3_REGION=bhs
+          OVH_S3_ACCESS_KEY=${OVH_S3_ACCESS_KEY}
+          OVH_S3_SECRET_KEY=${OVH_S3_SECRET_KEY}
+          EOF
+        env:
+          OVH_S3_ACCESS_KEY: ${{ secrets.OVH_S3_ACCESS_KEY }}
+          OVH_S3_SECRET_KEY: ${{ secrets.OVH_S3_SECRET_KEY }}
+
+      - name: Deploy .env to OVH via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./api/.env
+          server-dir: /www/dev/tu-valu/api/
