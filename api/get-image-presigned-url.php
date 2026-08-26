@@ -76,15 +76,28 @@ $date = gmdate('Ymd', $timestamp);
 $datetime = gmdate('Ymd\THis\Z', $timestamp);
 $expiration = gmdate('Y-m-d\TH:i:s\Z', $timestamp + $expires);
 
-// Canonical request - URL encode the key in canonical URI
-$canonicalUri = '/' . rawurlencode($key);
-$canonicalQueryString = http_build_query([
+// Canonical request
+$canonicalUri = '/' . $key;
+
+// Build query string parameters manually for proper encoding
+$credential = OVH_S3_ACCESS_KEY . '/' . $date . '/' . OVH_S3_REGION . '/s3/aws4_request';
+$queryParams = [
     'X-Amz-Algorithm' => 'AWS4-HMAC-SHA256',
-    'X-Amz-Credential' => OVH_S3_ACCESS_KEY . '/' . $date . '/' . OVH_S3_REGION . '/s3/aws4_request',
+    'X-Amz-Credential' => $credential,
     'X-Amz-Date' => $datetime,
     'X-Amz-Expires' => $expires,
     'X-Amz-SignedHeaders' => 'host'
-]);
+];
+
+// Build canonical query string (parameters must be sorted by key name)
+ksort($queryParams);
+$canonicalQueryString = '';
+foreach ($queryParams as $paramKey => $paramValue) {
+    if ($canonicalQueryString !== '') {
+        $canonicalQueryString .= '&';
+    }
+    $canonicalQueryString .= rawurlencode($paramKey) . '=' . rawurlencode($paramValue);
+}
 
 $canonicalHeaders = "host:" . OVH_S3_BUCKET . ".s3." . OVH_S3_REGION . ".io.cloud.ovh.net\n";
 $signedHeaders = "host";
@@ -128,11 +141,17 @@ $presignedUrl = sprintf(
 // Debug logging (remove in production)
 error_log("Generated presigned URL for student: " . $studentId);
 error_log("Key: " . $key);
+error_log("Canonical Query String: " . $canonicalQueryString);
 error_log("Signature: " . $signature);
+error_log("Presigned URL: " . $presignedUrl);
 
 echo json_encode([
     'presignedUrl' => $presignedUrl,
     'expiresIn' => $expires,
     'expiresAt' => $expiration,
-    'studentId' => $studentId
+    'studentId' => $studentId,
+    'debug' => [
+        'canonicalRequest' => $canonicalRequest,
+        'stringToSign' => $stringToSign
+    ]
 ]);

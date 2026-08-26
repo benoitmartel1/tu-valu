@@ -24,7 +24,7 @@ import {
   PenIcon,
   Component,
 } from "@lucide/vue";
-import { supabase, getStudentPhotoPresignedUrl } from "../supabase";
+import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
 import { signOut, userEmail, userId } from "../stores/auth";
 
@@ -160,7 +160,6 @@ const isAddingNewClass = ref(false);
 const classDetailId = ref(null); // null | 'new' | classId — opens ClassDetail view
 const studentDetailId = ref(null); // null | studentId — opens student detail view
 const studentDetailData = ref(null); // { id, firstname, lastname, gender, name_display_prefs } loaded from DB
-const studentDetailPhotoUrl = ref(null); // Presigned URL for student photo
 const studentImportOpen = ref(false);
 
 // Format student name based on their individual preferences
@@ -1595,7 +1594,6 @@ watch(studentDetailId, async (id) => {
   if (!id) {
     studentDetailData.value = null;
     studentDetailEditing.value = null;
-    studentDetailPhotoUrl.value = null;
     return;
   }
 
@@ -1623,22 +1621,6 @@ watch(studentDetailId, async (id) => {
       name: `${data.firstname} ${data.lastname}`,
       photo_url: data.photo_url,
     });
-
-    // If student has a photo_url, fetch presigned URL
-    if (data.photo_url) {
-      try {
-        const { presignedUrl } = await getStudentPhotoPresignedUrl(data.id);
-        if (presignedUrl) {
-          studentDetailPhotoUrl.value = presignedUrl;
-          console.log("Presigned URL fetched for student:", data.id);
-        }
-      } catch (error) {
-        console.error("Failed to get presigned URL:", error);
-        studentDetailPhotoUrl.value = null;
-      }
-    } else {
-      studentDetailPhotoUrl.value = null;
-    }
   } else {
     studentDetailData.value = {
       firstname: "",
@@ -1646,7 +1628,6 @@ watch(studentDetailId, async (id) => {
       gender: null,
     };
     studentDetailEditing.value = null;
-    studentDetailPhotoUrl.value = null;
     console.log("Student not found:", id);
   }
 });
@@ -2909,8 +2890,14 @@ defineExpose({
                         <!-- Photo placeholder -->
                         <div class="student-detail-photo">
                           <img
-                            v-if="studentDetailPhotoUrl"
-                            :src="studentDetailPhotoUrl"
+                            v-if="
+                              studentDetailEditing?.photo_url ||
+                              studentDetailData?.photo_url
+                            "
+                            :src="
+                              studentDetailEditing?.photo_url ||
+                              studentDetailData?.photo_url
+                            "
                             :alt="`${studentDetailEditing?.firstname || studentDetailData?.firstname} ${studentDetailEditing?.lastname || studentDetailData?.lastname}`"
                             class="student-photo-img"
                             @error="
