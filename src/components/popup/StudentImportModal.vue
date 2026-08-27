@@ -7,8 +7,9 @@ import {
   Image as ImageIcon,
   FileText,
 } from "@lucide/vue";
-import { supabase } from "../supabase";
-import { userId } from "../stores/auth";
+import { supabase } from "../../supabase";
+import { userId } from "../../stores/auth";
+import Popup from "./Popup.vue";
 
 // Levenshtein distance function for fuzzy string matching
 function levenshteinDistance(str1, str2) {
@@ -676,6 +677,14 @@ function updateManualMatch(index, studentId) {
   }
 }
 
+function removeStudentMatch(index) {
+  matchedStudents.value[index].student = null;
+  matchedStudents.value[index].manualMatch = false;
+  // Clear the search filter for this index
+  delete studentSearchFilters.value[index];
+  console.log("❌ Removed student match at index", index);
+}
+
 async function compressImage(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -874,27 +883,8 @@ function close() {
 </script>
 
 <template>
-  <div
-    class="student-import-backdrop"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="student-import-title"
-    @click.self="close"
-  >
-    <section class="student-import-modal">
-      <div class="student-import-header">
-        <div>
-          <h2 id="student-import-title">{{ modalTitle }}</h2>
-        </div>
-        <button
-          class="student-import-icon-button"
-          title="Fermer"
-          @click="close"
-        >
-          <X :size="24" />
-        </button>
-      </div>
-
+  <Popup :show="true" title="" @close="close">
+    <div class="student-import-content">
       <!-- Import Type Selection -->
       <div v-if="!importType" class="import-type-selection">
         <p class="import-type-description">
@@ -1135,6 +1125,13 @@ function close() {
                     >✓ {{ match.student.firstname }}
                     {{ match.student.lastname }}</span
                   >
+                  <button
+                    class="remove-match-button"
+                    title="Retirer l'élève et rechercher un autre"
+                    @click="removeStudentMatch(index)"
+                  >
+                    <X :size="16" />
+                  </button>
                 </template>
                 <template v-else>
                   <div class="student-search-container">
@@ -1248,104 +1245,22 @@ function close() {
           </button>
         </div>
       </div>
-    </section>
-  </div>
+    </div>
+  </Popup>
 </template>
 
 <style scoped>
-.student-import-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(10, 20, 30, 0.72);
-}
-.student-import-modal {
-  box-sizing: border-box;
-  width: 80%;
-  height: 80%;
-  max-width: 1100px;
-  max-height: 80%;
+.student-import-content {
   display: flex;
   flex-direction: column;
+  height: 100%;
   overflow: hidden;
-  padding: 1.4rem;
-  /* border: 1px solid rgba(255, 255, 255, 0.2); */
-  border-radius: 16px;
-  background: #ffffff;
-  color: #333;
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.35);
 }
-.student-import-header,
 .student-import-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-}
-.student-import-header {
-  flex: 0 0 auto;
-  margin-bottom: 1rem;
-}
-.student-import-kicker {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.65;
-}
-.student-import-modal h2 {
-  margin: 0.2rem 0 0;
-  font-size: 1.45rem;
-}
-.student-import-icon-button,
-.student-import-cancel,
-.student-import-submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  border: 0;
-  border-radius: 9px;
-  padding: 0.65rem 0.9rem;
-  color: var(--text-light);
-  font: inherit;
-  cursor: pointer;
-}
-.student-import-icon-button {
-  padding: 0.45rem;
-  color: var(--text-dark);
-  background: none;
-}
-.student-import-label,
-.student-import-field label {
-  display: block;
-  margin-bottom: 0.4rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-.student-import-textarea,
-.student-import-field select {
-  box-sizing: border-box;
-  width: 100%;
-  border: none;
-  /* border: 1px solid rgba(255, 255, 255, 0.2); */
-  border-radius: 9px;
-  background: rgba(10, 20, 30, 0.2);
-  color: #333;
-  font: inherit;
-}
-.student-import-textarea {
-  box-sizing: border-box;
-  flex: 1;
-  min-height: 0;
-  max-height: 100%;
-  padding: 0.75rem;
-  overflow-y: auto;
-  resize: none;
-  line-height: 1.45;
 }
 .student-import-paste-step,
 .student-import-verify-step {
@@ -1654,6 +1569,7 @@ function close() {
 /* Match List */
 .picture-match-step {
   gap: 0.75rem;
+  height: 100vh;
 }
 
 .match-list {
@@ -1715,7 +1631,9 @@ function close() {
   color: #666;
   font-style: italic;
 }
-
+.match-item {
+  overflow: visible;
+}
 .match-student-info {
   display: flex;
   align-items: center;
@@ -1725,6 +1643,27 @@ function close() {
 .match-success {
   color: #2e7d32;
   font-weight: 600;
+}
+
+.remove-match-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #c62828;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.remove-match-button:hover {
+  background: rgba(198, 40, 40, 0.1);
+}
+
+.remove-match-button:active {
+  transform: scale(0.95);
 }
 
 .match-manual {
@@ -1777,16 +1716,13 @@ function close() {
 }
 
 .student-search-result-item {
+  /* position: absolute; */
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   transition: background 0.15s;
-}
-
-.student-search-result-item:hover {
-  background: #f0f4f8;
 }
 
 .student-search-result-item .student-name {

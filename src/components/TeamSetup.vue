@@ -4,7 +4,6 @@ import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
 import RangeInput from "./RangeInput.vue";
 import { userId } from "../stores/auth";
-import "../styles/shared.css";
 
 const props = defineProps({
   students: {
@@ -24,9 +23,13 @@ function formatStudentName(student) {
     showFirstname: true,
     showInitial: false,
     showLastname: false,
+    showCustomName: false,
   };
 
   const parts = [];
+  if (prefs.showCustomName) {
+    parts.push(student.custom_name);
+  }
   if (prefs.showFirstname) {
     parts.push(student.firstname);
   }
@@ -344,101 +347,179 @@ async function generateTeams() {
   generatedTeams.value = teams;
 }
 
-// Drag and drop state
+// Drag and drop state (pointer-based)
 const dragState = ref(null);
 const isDraggingOverEmptySpace = ref(false);
+const dragGhost = ref(null);
 
-function handleDragStart(event, student, fromTeamIndex) {
-  dragState.value = { student, fromTeamIndex };
-  event.dataTransfer.effectAllowed = "move";
+function onDragStart(e, student, fromTeamIndex) {
+  if (dragState.value) return; // only one drag at a time
+  e.preventDefault();
+
+  const rect = e.currentTarget.getBoundingClientRect();
+
+  // Create drag ghost element
+  const ghost = document.createElement("div");
+  ghost.className = "student-pill drag-ghost";
+  ghost.textContent = formatStudentName(student);
+  ghost.style.position = "fixed";
+  ghost.style.left = e.clientX - rect.width / 2 + "px";
+  ghost.style.top = e.clientY - rect.height / 2 + "px";
+  ghost.style.pointerEvents = "none";
+  ghost.style.zIndex = "9999";
+  ghost.style.opacity = "0.8";
+  ghost.style.transform = "scale(1.1)";
+  document.body.appendChild(ghost);
+  dragGhost.value = ghost;
+
+  dragState.value = {
+    student,
+    fromTeamIndex,
+    startX: e.clientX,
+    startY: e.clientY,
+    currentX: e.clientX,
+    currentY: e.clientY,
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+
+  document.body.style.touchAction = "none";
+  document.body.style.userSelect = "none";
+  document.addEventListener("pointermove", onDragMove);
+  document.addEventListener("pointerup", onDragEnd);
+  document.addEventListener("pointercancel", onDragCancel);
 }
 
-function handleDragOver(event) {
-  event.preventDefault();
-  event.dataTransfer.dropEffect = "move";
-}
+function onDragMove(e) {
+  if (!dragState.value) return;
+  e.preventDefault();
 
-function handleDragEnterEmptySpace(event) {
-  isDraggingOverEmptySpace.value = true;
-}
+  dragState.value.currentX = e.clientX;
+  dragState.value.currentY = e.clientY;
 
-function handleDragLeaveEmptySpace(event) {
-  // Only set to false if we're actually leaving the teams-column
-  if (!event.currentTarget.contains(event.relatedTarget)) {
+  // Update ghost position
+  if (dragGhost.value) {
+    dragGhost.value.style.left = e.clientX - dragState.value.width / 2 + "px";
+    dragGhost.value.style.top = e.clientY - dragState.value.height / 2 + "px";
+  }
+
+  // Hit-test drop zones
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const teamCard = el?.closest(".team-card");
+  const teamsColumn = el?.closest(".teams-column");
+
+  if (teamCard) {
+    isDraggingOverEmptySpace.value = false;
+  } else if (teamsColumn) {
+    isDraggingOverEmptySpace.value = true;
+  } else {
     isDraggingOverEmptySpace.value = false;
   }
 }
 
-function handleDrop(event, toTeamIndex) {
-  event.preventDefault();
-  if (!dragState.value) return;
+function onDragCancel() {
+  document.body.style.touchAction = "";
+  document.body.style.userSelect = "";
+  document.removeEventListener("pointermove", onDragMove);
+  document.removeEventListener("pointerup", onDragEnd);
+  document.removeEventListener("pointercancel", onDragCancel);
 
-  const { student, fromTeamIndex } = dragState.value;
-
-  // Remove from source team or unassigned list
-  if (fromTeamIndex === -1) {
-    // Student was in unassigned list
-    const studentIndex = unassignedStudents.value.findIndex(
-      (s) => s.id === student.id,
-    );
-    if (studentIndex !== -1) {
-      unassignedStudents.value.splice(studentIndex, 1);
-    }
-  } else {
-    // Student was in a team
-    const fromTeam = generatedTeams.value[fromTeamIndex];
-    const studentIndex = fromTeam.students.findIndex(
-      (s) => s.id === student.id,
-    );
-    if (studentIndex !== -1) {
-      fromTeam.students.splice(studentIndex, 1);
-    }
+  // Remove ghost
+  if (dragGhost.value) {
+    dragGhost.value.remove();
+    dragGhost.value = null;
   }
 
-  // Add to target team
-  const toTeam = generatedTeams.value[toTeamIndex];
-  toTeam.students.push(student);
-
   dragState.value = null;
+  isDraggingOverEmptySpace.value = false;
 }
 
-function handleDropToEmptySpace(event) {
-  event.preventDefault();
-  isDraggingOverEmptySpace.value = false;
+function onDragEnd() {
+  document.body.style.touchAction = "";
+  document.body.style.userSelect = "";
+  document.removeEventListener("pointermove", onDragMove);
+  document.removeEventListener("pointerup", onDragEnd);
+  document.removeEventListener("pointercancel", onDragCancel);
+
+  // Remove ghost
+  if (dragGhost.value) {
+    dragGhost.value.remove();
+    dragGhost.value = null;
+  }
 
   if (!dragState.value) return;
 
-  const { student, fromTeamIndex } = dragState.value;
+  const { student, fromTeamIndex, currentX, currentY } = dragState.value;
 
-  // Remove from source team or unassigned list
-  if (fromTeamIndex === -1) {
-    // Already unassigned, just update position
-    const studentIndex = unassignedStudents.value.findIndex(
-      (s) => s.id === student.id,
-    );
-    if (studentIndex !== -1) {
-      unassignedStudents.value[studentIndex].x = event.offsetX;
-      unassignedStudents.value[studentIndex].y = event.offsetY;
-    }
-  } else {
-    // Remove from team and add to unassigned
-    const fromTeam = generatedTeams.value[fromTeamIndex];
-    const studentIndex = fromTeam.students.findIndex(
-      (s) => s.id === student.id,
-    );
-    if (studentIndex !== -1) {
-      fromTeam.students.splice(studentIndex, 1);
-    }
+  // Check where we dropped
+  const dropEl = document.elementFromPoint(currentX, currentY);
+  const teamCard = dropEl?.closest(".team-card");
+  const teamsColumn = dropEl?.closest(".teams-column");
 
-    // Add to unassigned with position
-    unassignedStudents.value.push({
-      ...student,
-      x: event.offsetX,
-      y: event.offsetY,
-    });
+  if (teamCard) {
+    // Find which team index this card belongs to
+    const allTeamCards = Array.from(document.querySelectorAll(".team-card"));
+    const toTeamIndex = allTeamCards.indexOf(teamCard);
+
+    if (toTeamIndex !== -1) {
+      // Remove from source
+      if (fromTeamIndex === -1) {
+        const studentIndex = unassignedStudents.value.findIndex(
+          (s) => s.id === student.id,
+        );
+        if (studentIndex !== -1) {
+          unassignedStudents.value.splice(studentIndex, 1);
+        }
+      } else {
+        const fromTeam = generatedTeams.value[fromTeamIndex];
+        const studentIndex = fromTeam.students.findIndex(
+          (s) => s.id === student.id,
+        );
+        if (studentIndex !== -1) {
+          fromTeam.students.splice(studentIndex, 1);
+        }
+      }
+
+      // Add to target team
+      const toTeam = generatedTeams.value[toTeamIndex];
+      toTeam.students.push(student);
+    }
+  } else if (teamsColumn && !teamCard) {
+    // Dropped in empty space
+    if (fromTeamIndex !== -1) {
+      // Remove from team and add to unassigned
+      const fromTeam = generatedTeams.value[fromTeamIndex];
+      const studentIndex = fromTeam.students.findIndex(
+        (s) => s.id === student.id,
+      );
+      if (studentIndex !== -1) {
+        fromTeam.students.splice(studentIndex, 1);
+      }
+
+      // Add to unassigned with position relative to teams column
+      const columnRect = teamsColumn.getBoundingClientRect();
+      unassignedStudents.value.push({
+        ...student,
+        x: currentX - columnRect.left,
+        y: currentY - columnRect.top,
+      });
+    } else {
+      // Student was already unassigned - just update position
+      const studentIndex = unassignedStudents.value.findIndex(
+        (s) => s.id === student.id,
+      );
+      if (studentIndex !== -1) {
+        const columnRect = teamsColumn.getBoundingClientRect();
+        unassignedStudents.value[studentIndex].x = currentX - columnRect.left;
+        unassignedStudents.value[studentIndex].y = currentY - columnRect.top;
+      }
+    }
   }
 
   dragState.value = null;
+  isDraggingOverEmptySpace.value = false;
 }
 
 function updateTeamName(teamIndex, newName) {
@@ -675,10 +756,6 @@ function getTeamColor(teamIndex) {
       <div
         class="teams-column"
         :class="{ 'drag-over': isDraggingOverEmptySpace }"
-        @dragover="handleDragOver"
-        @drop="handleDropToEmptySpace"
-        @dragenter="handleDragEnterEmptySpace"
-        @dragleave="handleDragLeaveEmptySpace"
       >
         <!-- Empty State -->
         <div v-if="students.length === 0" class="empty-state">
@@ -696,8 +773,6 @@ function getTeamColor(teamIndex) {
             v-for="(team, teamIndex) in generatedTeams"
             :key="team.id"
             class="team-card"
-            @dragover="handleDragOver"
-            @drop="handleDrop($event, teamIndex)"
           >
             <div class="team-header">
               <!-- Color picker circle -->
@@ -735,8 +810,10 @@ function getTeamColor(teamIndex) {
                 v-for="student in team.students"
                 :key="student.id"
                 class="student-pill"
-                draggable="true"
-                @dragstart="handleDragStart($event, student, teamIndex)"
+                :class="{
+                  'is-dragging': dragState?.student?.id === student.id,
+                }"
+                @pointerdown="onDragStart($event, student, teamIndex)"
               >
                 {{ formatStudentName(student) }}
               </div>
@@ -749,12 +826,12 @@ function getTeamColor(teamIndex) {
           v-for="(student, index) in unassignedStudents"
           :key="`unassigned-${student.id}`"
           class="unassigned-student-pill"
+          :class="{ 'is-dragging': dragState?.student?.id === student.id }"
           :style="{
             left: student.x + 'px',
             top: student.y + 'px',
           }"
-          draggable="true"
-          @dragstart="handleDragStart($event, student, -1)"
+          @pointerdown="onDragStart($event, student, -1)"
         >
           {{ formatStudentName(student) }}
         </div>
@@ -1140,5 +1217,26 @@ function getTeamColor(teamIndex) {
 
 .unassigned-student-pill:active {
   cursor: grabbing;
+}
+
+/* Dragging state */
+.student-pill.is-dragging,
+.unassigned-student-pill.is-dragging {
+  opacity: 0.3;
+  cursor: grabbing;
+}
+
+/* Drag ghost element */
+.drag-ghost {
+  background: rgb(69, 123, 157);
+  border-radius: 999px;
+  padding: 8px 18px;
+  color: var(--text-light);
+  font-weight: 700;
+  font-size: 1.1rem;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
 }
 </style>

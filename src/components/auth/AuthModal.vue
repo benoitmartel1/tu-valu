@@ -7,13 +7,13 @@ import {
   signInWithMagicLink,
   signInWithProvider,
   resetPassword,
-} from "../supabase";
+} from "../../supabase";
 import {
   showAuthModal,
   hideAuth,
   error as authError,
   clearError,
-} from "../stores/auth";
+} from "../../stores/auth";
 
 const activeTab = ref("login"); // 'login', 'signup', 'magic-link', 'forgot-password'
 const email = ref("");

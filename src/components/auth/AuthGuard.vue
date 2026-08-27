@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { Loader2 } from "@lucide/vue";
 import AuthModal from "./AuthModal.vue";
-import { loading, isAuthenticated, showAuthModal } from "../stores/auth";
+import { loading, isAuthenticated, showAuthModal } from "../../stores/auth";
 
 const isReady = computed(() => !loading.value);
 </script>

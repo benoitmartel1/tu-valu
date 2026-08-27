@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { Trash2 } from "@lucide/vue";
-import { supabase } from "../supabase";
+import { supabase } from "../../supabase";
 
 const props = defineProps({
   classId: { type: String, default: null },
@@ -90,20 +90,10 @@ async function deleteClass() {
 
 <template>
   <div class="class-detail">
-    <div v-if="loading && !className" class="detail-loading">Chargement...</div>
+    <div v-if="loading && !className" class="detail-loading"></div>
     <template v-else>
       <div class="detail-section">
-        <div class="class-name-row">
-          <label class="detail-label" for="class-name">Nom</label>
-          <input
-            id="class-name"
-            v-model="className"
-            class="detail-input"
-            placeholder="Ex: 3A"
-            :disabled="loading || isNewClass"
-            @blur="saveClass"
-            @keyup.enter="saveClass"
-          />
+        <div class="row">
           <button
             v-if="!isNewClass"
             class="btn-icon btn-icon--delete-class"
@@ -111,13 +101,24 @@ async function deleteClass() {
             :disabled="loading"
             @click="deleteClass"
           >
-            <Trash2 :size="24" />
+            <Trash2 :size="32" />
           </button>
         </div>
-      </div>
-      <div class="detail-section student-count-section">
-        <span class="detail-label">Élèves</span>
-        <span class="student-count">{{ studentCount }}</span>
+        <div class="row">
+          <input
+            id="class-name"
+            v-model="className"
+            class="detail-input"
+            placeholder="Nom de la classe"
+            :disabled="loading || isNewClass"
+            @blur="saveClass"
+            @keyup.enter="saveClass"
+          />
+        </div>
+        <div class="row">
+          <span class="detail-label">Élèves</span>
+          <span class="student-count">{{ studentCount }}</span>
+        </div>
       </div>
     </template>
   </div>
@@ -146,17 +147,27 @@ async function deleteClass() {
   box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.row {
+  width: 100%;
+  display: flex;
+  /* display: flex;
+  align-items: center; */
+  gap: 0.75rem;
 }
 
-.class-name-row,
+/* .class-name-row,
 .student-count-section {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   max-width: 100%;
   min-width: 0;
-}
+} */
 
 .detail-label {
   display: block;
@@ -187,6 +198,7 @@ async function deleteClass() {
 }
 
 .btn-icon {
+  margin-left: auto;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -200,7 +212,7 @@ async function deleteClass() {
 }
 
 .btn-icon--delete-class {
-  color: #ffb4a2;
+  color: white;
 }
 
 .btn-icon:disabled {

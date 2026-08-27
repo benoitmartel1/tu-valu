@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted } from "vue";
-import AuthGuard from "./components/AuthGuard.vue";
+import AuthGuard from "./components/auth/AuthGuard.vue";
 import LiveSession from "./components/LiveSession.vue";
-import ResetPassword from "./components/ResetPassword.vue";
+import ResetPassword from "./components/auth/ResetPassword.vue";
 
 const showResetPassword = ref(false);
 
