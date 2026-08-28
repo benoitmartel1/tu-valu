@@ -211,12 +211,16 @@ async function deleteStudent() {
         </div>
         <div class="student-detail-identifiers">
           <div v-if="studentClassName || studentData?.class_name">
-            <span class="student-detail-identifier-label">Classe</span>
-            <strong>{{ studentClassName || studentData?.class_name }}</strong>
+            <span>{{ studentClassName || studentData?.class_name }}</span>
           </div>
-          <div v-if="studentDetailEditing.student_number">
-            <span class="student-detail-identifier-label">No dans la classe</span>
-            <strong>{{ studentDetailEditing.student_number }}</strong>
+          <div
+            v-if="
+              studentDetailEditing.student_number || studentData?.student_number
+            "
+          >
+            <span>{{
+              studentDetailEditing.student_number || studentData?.student_number
+            }}</span>
           </div>
         </div>
       </div>
