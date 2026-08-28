@@ -112,7 +112,11 @@ function handleClassCheck(cls) {
 }
 
 function handleStudentCheck(student) {
-  emit("student-check", props.selectedClassId, student);
+  const isSelected =
+    props.checkedStudentIds.has(student.id) ||
+    (props.checkedClassIds.has(props.selectedClassId) &&
+      !props.excludedStudentIds.has(student.id));
+  emit("student-check", props.selectedClassId, student, isSelected);
 }
 
 function onClassDetailSaved() {
@@ -220,6 +224,7 @@ function onStudentImported() {
               >
                 <ClassDetail
                   :class-id="classDetailId === 'new' ? null : classDetailId"
+                  :all-students="allStudents"
                   @close="classDetailId = null"
                   @saved="onClassDetailSaved"
                   @deleted="onClassDetailDeleted"
@@ -257,6 +262,7 @@ function onStudentImported() {
                           }"
                           @click="studentDetailId = student.id"
                         >
+                          <!-- <span>{{ student.student_number }}</span> -->
                           <span
                             >{{ student.firstname }}
                             {{ student.lastname }}</span

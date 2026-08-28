@@ -121,7 +121,6 @@ async function loadReportData() {
 
       eventsQuery = eventsQuery
         .in("student_id", [...selectedStudentIds])
-        .in("skill_id", [...selectedSkillIds])
         .order("created_at", { ascending: true });
 
       const [sessRes, evtRes] = await Promise.all([
@@ -140,6 +139,18 @@ async function loadReportData() {
       eventsRes = evtRes;
     }
 
+    const reportEvents = (eventsRes.data || []).flatMap((event) => {
+      if (event.level !== "abs" || event.skill_id) return [event];
+
+      return props.skills
+        .filter(
+          (skill) =>
+            selectedSkillIds.has(skill.id) &&
+            skill.evaluation_id === event.evaluation_id,
+        )
+        .map((skill) => ({ ...event, skill_id: skill.id }));
+    });
+
     reportData.value = {
       sessions: sessionsRes.data || [],
       students: (studentsRes.data || []).sort((a, b) =>
@@ -148,7 +159,7 @@ async function loadReportData() {
       skills: (skillsRes.data || []).sort((a, b) =>
         a.name.localeCompare(b.name, "fr-FR"),
       ),
-      events: eventsRes.data || [],
+      events: reportEvents,
     };
   } catch (err) {
     console.error("Failed to load report:", err);
@@ -219,6 +230,13 @@ function getStudentEvents(studentId) {
 function studentSkillCount(studentId, skillId) {
   return getStudentEvents(studentId).filter((e) => e.skill_id === skillId)
     .length;
+}
+
+function studentSkillHasOnlyAbs(studentId, skillId) {
+  const events = getStudentEvents(studentId).filter(
+    (e) => e.skill_id === skillId,
+  );
+  return events.length > 0 && events.every((event) => event.level === "abs");
 }
 
 function studentSkillLast(studentId, skillId) {
@@ -607,7 +625,7 @@ defineExpose({
                   </div>
                 </div>
 
-                <table class="report-detail-table">
+                <table class="report-student-info report-detail-table">
                   <thead>
                     <tr>
                       <th class="detail-th-date">Date</th>
@@ -621,6 +639,92 @@ defineExpose({
                     </tr>
                   </thead>
                   <tbody>
+                    <tr class="report-stats-row">
+                      <td class="detail-td-date">Stats</td>
+                      <td
+                        v-for="skill in reportData.skills"
+                        :key="skill.id"
+                        class="detail-td-level"
+                      >
+                        <span
+                          v-if="
+                            studentSkillHasOnlyAbs(
+                              reportSelectedStudent.id,
+                              skill.id,
+                            )
+                          "
+                          class="report-abs"
+                        >
+                          ABS
+                        </span>
+                        <span
+                          v-else-if="
+                            studentSkillCount(
+                              reportSelectedStudent.id,
+                              skill.id,
+                            ) > 0
+                          "
+                          class="skill-stats"
+                        >
+                          <span class="stat-latest">
+                            <span class="stat-latest-value">{{
+                              studentSkillLast(
+                                reportSelectedStudent.id,
+                                skill.id,
+                              )
+                            }}</span>
+                          </span>
+                          <span class="stat-group">
+                            <span class="stat-item"
+                              ><Eye :size="11" />
+                              <span class="stat-val">{{
+                                studentSkillCount(
+                                  reportSelectedStudent.id,
+                                  skill.id,
+                                )
+                              }}</span></span
+                            >
+                            <span class="stat-item stat-tri"
+                              ><span class="tri-down">▼</span>
+                              <span class="stat-val">{{
+                                fmtNum(
+                                  studentSkillMin(
+                                    reportSelectedStudent.id,
+                                    skill.id,
+                                  ),
+                                )
+                              }}</span></span
+                            >
+                            <span class="stat-item stat-tri"
+                              ><span class="tri-up">▲</span>
+                              <span class="stat-val">{{
+                                fmtNum(
+                                  studentSkillMax(
+                                    reportSelectedStudent.id,
+                                    skill.id,
+                                  ),
+                                )
+                              }}</span></span
+                            >
+                            <span class="stat-item"
+                              ><span class="stat-tilde">~</span>
+                              <span class="stat-val">{{
+                                fmtNum(
+                                  studentSkillAvg(
+                                    reportSelectedStudent.id,
+                                    skill.id,
+                                  ),
+                                )
+                              }}</span></span
+                            >
+                          </span>
+                        </span>
+                        <span v-else class="stats-na">N/A</span>
+                      </td>
+                    </tr>
+                    <tr class="report-stats-separator">
+                      <td :colspan="reportData.skills.length + 1"></td>
+                    </tr>
                     <tr
                       v-for="event in getStudentEvents(
                         reportSelectedStudent.id,
@@ -687,51 +791,18 @@ defineExpose({
                             <template
                               v-if="studentSkillCount(student.id, skill.id) > 0"
                             >
-                              <div class="skill-stats">
-                                <span
-                                  v-if="
-                                    studentSkillLast(student.id, skill.id) !=
-                                    null
-                                  "
-                                  class="stat-latest"
-                                >
-                                  <span class="stat-latest-value">{{
-                                    studentSkillLast(student.id, skill.id)
-                                  }}</span>
-                                </span>
-                                <span class="stat-group">
-                                  <span class="stat-item"
-                                    ><Eye :size="11" />
-                                    <span class="stat-val">{{
-                                      studentSkillCount(student.id, skill.id)
-                                    }}</span></span
-                                  >
-                                  <span class="stat-item stat-tri"
-                                    ><span class="tri-down">▼</span>
-                                    <span class="stat-val">{{
-                                      fmtNum(
-                                        studentSkillMin(student.id, skill.id),
-                                      )
-                                    }}</span></span
-                                  >
-                                  <span class="stat-item stat-tri"
-                                    ><span class="tri-up">▲</span>
-                                    <span class="stat-val">{{
-                                      fmtNum(
-                                        studentSkillMax(student.id, skill.id),
-                                      )
-                                    }}</span></span
-                                  >
-                                  <span class="stat-item"
-                                    ><span class="stat-tilde">~</span>
-                                    <span class="stat-val">{{
-                                      fmtNum(
-                                        studentSkillAvg(student.id, skill.id),
-                                      )
-                                    }}</span></span
-                                  >
-                                </span>
-                              </div>
+                              <span
+                                v-if="
+                                  studentSkillHasOnlyAbs(student.id, skill.id)
+                                "
+                                class="report-abs"
+                                >ABS</span
+                              >
+                              <span v-else class="stat-latest">
+                                <span class="stat-latest-value">{{
+                                  studentSkillLast(student.id, skill.id)
+                                }}</span>
+                              </span>
                             </template>
                             <span v-else class="stats-na">N/A</span>
                           </td>
@@ -757,6 +828,7 @@ defineExpose({
 
 /* Report modal body - full width */
 .report-modal .class-modal-body {
+  overflow: hidden;
   width: 100%;
 }
 
@@ -765,9 +837,16 @@ defineExpose({
   width: 100%;
   max-width: 100%;
   flex: 1;
-  overflow-y: auto;
+
   border-radius: 12px;
   padding: 1rem;
+  height: 100%;
+  > div {
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    height: 100%;
+    overflow-y: auto;
+  }
 }
 
 /* Report student detail view */
@@ -857,6 +936,7 @@ defineExpose({
   margin-bottom: 1.5rem;
   font-size: 0.82rem;
   table-layout: fixed;
+  /* overflow-y: scroll; */
 }
 
 .report-table th,
@@ -866,16 +946,20 @@ defineExpose({
   text-align: center;
 }
 
-.report-table thead th {
-  border-right: 1px solid white;
-  background: rgba(38, 70, 83, 0.08);
-  color: var(--court-blue);
-  font-weight: 700;
-  font-size: 1.1rem;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-  max-width: 80px;
+.report-table thead {
+  position: sticky;
+  top: 0;
+  th {
+    border-right: 1px solid white;
+    background: rgb(235, 235, 235);
+    color: var(--court-blue);
+    font-weight: 700;
+    font-size: 1.1rem;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 80px;
+  }
 }
 
 .report-table thead th:first-child {
@@ -929,12 +1013,22 @@ defineExpose({
   text-align: center;
 }
 
+.report-abs {
+  color: #d62828;
+  font-style: italic;
+  font-weight: 700;
+}
+
 .report-table .report-td-student--clickable {
   cursor: pointer;
 }
 
 .report-table .report-td-student--clickable:hover {
   background: rgba(38, 70, 83, 0.08);
+}
+
+.report-table .stat-latest {
+  margin-inline: auto;
 }
 
 /* Report detail table */
@@ -949,13 +1043,15 @@ defineExpose({
 .report-detail-table td {
   color: var(--court-blue);
   padding: 0.4rem 0.6rem;
-  text-align: left;
+  /* text-align: left; */
   border: 1px solid rgba(38, 70, 83, 0.1);
 }
 
-.report-detail-table thead th {
-  background: rgba(38, 70, 83, 0.08);
-  font-weight: 700;
+.report-detail-table thead {
+  th {
+    background: rgba(38, 70, 83, 0.08);
+    font-weight: 700;
+  }
 }
 
 .detail-th-date {
@@ -964,6 +1060,17 @@ defineExpose({
 
 .detail-td-date {
   white-space: nowrap;
+}
+
+.report-stats-row td {
+  background: rgba(38, 70, 83, 0.04);
+}
+
+.report-stats-separator td {
+  height: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .stats-na {
@@ -1024,7 +1131,7 @@ defineExpose({
 /* Skill stats */
 .skill-stats {
   display: flex;
-  flex-direction: column;
+  /* flex-direction: column; */
   align-items: center;
   gap: 0.2rem;
 }
@@ -1178,20 +1285,23 @@ defineExpose({
 
 .tri-down {
   color: rgba(255, 140, 100, 0.7);
-  font-size: 0.55rem;
+  font-size: 1rem;
+  margin-right: 0.3rem;
   line-height: 1;
 }
 
 .tri-up {
   color: rgba(100, 200, 130, 0.7);
-  font-size: 0.55rem;
+  font-size: 1rem;
+  margin-right: 0.3rem;
   line-height: 1;
 }
 
 .stat-tilde {
   color: var(--court-blue);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 1rem;
+
   line-height: 1;
 }
 
@@ -1203,14 +1313,15 @@ defineExpose({
   width: 22px;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--court-blue);
+  color: var(--court-blue);
+  /* background: var(--court-blue); */
   flex-shrink: 0;
 }
 
 .stat-latest-value {
   font-size: 1rem;
   font-weight: 800;
-  color: var(--text-light);
+  /* color: var(--text-light); */
   line-height: 1;
 }
 

@@ -5,15 +5,20 @@ import { supabase } from "../../supabase";
 
 const props = defineProps({
   classId: { type: String, default: null },
+  allStudents: { type: Array, required: true },
 });
 
 const emit = defineEmits(["saved", "deleted"]);
 
 const className = ref("");
-const studentCount = ref(0);
 const loading = ref(false);
 const originalClassName = ref("");
 const isNewClass = computed(() => !props.classId);
+const studentCount = computed(
+  () =>
+    props.allStudents.filter((student) => student.class_id === props.classId)
+      .length,
+);
 
 onMounted(async () => {
   if (props.classId) await loadClass(props.classId);
@@ -22,19 +27,14 @@ onMounted(async () => {
 async function loadClass(id) {
   loading.value = true;
   try {
-    const [{ data: cls, error: classError }, { count, error: studentError }] =
-      await Promise.all([
-        supabase.from("tu_classes").select("id, name").eq("id", id).single(),
-        supabase
-          .from("tu_students")
-          .select("id", { count: "exact", head: true })
-          .eq("class_id", id),
-      ]);
+    const { data: cls, error: classError } = await supabase
+      .from("tu_classes")
+      .select("id, name")
+      .eq("id", id)
+      .single();
     if (classError) throw classError;
-    if (studentError) throw studentError;
     className.value = cls?.name || "";
     originalClassName.value = className.value;
-    studentCount.value = count || 0;
   } catch (error) {
     console.error("Failed to load class:", error);
   } finally {

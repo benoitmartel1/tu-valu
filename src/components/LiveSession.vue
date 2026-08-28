@@ -251,7 +251,7 @@ async function loadAllData() {
   const { data: studentData } = await supabase
     .from("tu_students")
     .select(
-      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url, custom_name",
+      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url, custom_name, student_number",
     );
   allStudents.value = studentData || [];
 
@@ -444,6 +444,7 @@ async function startSession() {
     }
 
     for (const ev of eventsRes || []) {
+      if (ev.level === "abs") continue;
       if (!c[ev.student_id]) c[ev.student_id] = {};
       if (!ul[ev.student_id]) ul[ev.student_id] = {};
       if (!lc[ev.student_id]) lc[ev.student_id] = {};
@@ -603,6 +604,50 @@ function onDragCancel() {
   hoveredAbsent.value = false;
 }
 
+async function markStudentAbsent(studentId, classId) {
+  const activeSkills = currentSkills.value;
+  if (!classId || activeSkills.length === 0) return;
+
+  const { data: existingEvents, error: existingError } = await supabase
+    .from("tu_session_events")
+    .select("id, skill_id")
+    .eq("student_id", studentId)
+    .eq("level", "abs")
+    .in(
+      "skill_id",
+      activeSkills.map((skill) => skill.id),
+    );
+
+  if (existingError) {
+    console.error("Failed to check absent event:", existingError);
+    return;
+  }
+
+  const existingSkillIds = new Set(
+    (existingEvents || []).map((event) => event.skill_id),
+  );
+  const absentEvents = activeSkills
+    .filter((skill) => !existingSkillIds.has(skill.id))
+    .map((skill) => ({
+      class_id: classId,
+      evaluation_id: skill.evaluation_id,
+      student_id: studentId,
+      skill_id: skill.id,
+      level: "abs",
+      team_id: null,
+      user_id: userId.value,
+    }));
+
+  if (absentEvents.length === 0) return;
+
+  const { error } = await supabase
+    .from("tu_session_events")
+    .insert(absentEvents);
+  if (error) {
+    console.error("Failed to save absent event:", error);
+  }
+}
+
 function onDragEnd() {
   document.body.style.touchAction = "";
   document.body.style.userSelect = "";
@@ -645,6 +690,7 @@ function onDragEnd() {
           toggleChecked(studentId, "student");
         }
       }
+      markStudentAbsent(studentId, foundClass?.id || absentStudent.class_id);
       if (hasEvalSelection.value) startSession();
     }
     drag.value = null;
@@ -962,30 +1008,35 @@ async function handleClassCheck(cls) {
   // currentStudents computed will automatically update
 }
 
-function handleStudentCheck(cls, student) {
-  if (checkedClassIds.value.has(cls.id)) {
+async function refreshReportAfterStudentChange() {
+  if (activeModal.value === "report" && reportModalRef.value) {
+    await reportModalRef.value.loadReportData();
+  }
+}
+
+async function handleStudentCheck(classId, student, isSelected) {
+  const isClassSelected = checkedClassIds.value.has(classId);
+
+  if (isClassSelected) {
     // Class is checked — toggle this student's exclusion
     const newExcluded = new Set(excludedStudentIds.value);
-    if (newExcluded.has(student.id)) {
-      newExcluded.delete(student.id);
-    } else {
+    if (isSelected) {
       newExcluded.add(student.id);
+    } else {
+      newExcluded.delete(student.id);
     }
     excludedStudentIds.value = newExcluded;
   } else {
     // Class is not checked — toggle individual student
-    const wasChecked = checkedStudentIds.value.has(student.id);
-    toggleChecked(student.id, "student");
-    if (
-      wasChecked &&
-      checkedStudentIds.value.size === 0 &&
-      checkedClassIds.value.size === 0
-    ) {
-      return;
+    if (isSelected) toggleChecked(student.id, "student");
+    else if (!checkedStudentIds.value.has(student.id)) {
+      toggleChecked(student.id, "student");
     }
   }
+
   // Reload live view to reflect exclusion changes
-  if (hasEvalSelection.value) startSession();
+  if (hasEvalSelection.value) await startSession();
+  await refreshReportAfterStudentChange();
 }
 
 async function handleEvalCheck(ev) {
@@ -1102,7 +1153,16 @@ defineExpose({
 </script>
 
 <template>
-  <div class="app-root">
+  <div
+    class="app-root"
+    :class="{
+      'modal-open':
+        isClassModalOpen ||
+        isEvalModalOpen ||
+        isReportModalOpen ||
+        isTeamModalOpen,
+    }"
+  >
     <div class="top-bar">
       <div class="top-bar-left">
         <button
@@ -1474,7 +1534,7 @@ textarea {
 .app-root {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: 95dvh;
   overflow: hidden;
   max-width: 1366px;
   margin: auto;
@@ -1598,9 +1658,17 @@ textarea {
 .students-row {
   padding: 15px;
   gap: 10px;
-  min-height: 200px;
+  /* min-height: 200px; */
   height: auto;
   align-items: flex-start;
+}
+
+.app-root.modal-open .students-row {
+  display: none;
+}
+
+.app-root.modal-open .main-content {
+  margin-bottom: 0;
 }
 
 .students-row-left,
@@ -2195,19 +2263,18 @@ textarea {
 
 /* ── Drag clone ───────────────────────────────────── */
 .drag-clone {
-  /* border-radius: 999px; */
-  border: 2px var(--text-light) solid;
-  /* background: rgba(20, 10, 2, 0.85); */
-  /* color: var(--stadium-yellow); */
-
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(69, 123, 157);
+  color: var(--text-light);
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   font-weight: 700;
-  font-size: 0.75rem;
-  /* line-height: 1.2; */
-  /* padding: 4px 12px; */
+  font-size: 1.1rem;
+  font-family: inherit;
+  padding: 8px 18px;
   transform: scale(1.15);
   white-space: nowrap;
 }
