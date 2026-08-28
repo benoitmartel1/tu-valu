@@ -16,6 +16,7 @@ const emit = defineEmits(["close", "deleted", "data-changed"]);
 
 const studentDetailEditing = ref(null);
 const studentPhotoUrl = ref(null);
+const studentClassName = ref("");
 let photoUrlRequest = 0;
 
 async function loadStudentPhoto(photoUrl) {
@@ -42,6 +43,7 @@ watch(
 
     // Use prop data immediately for responsive UI
     studentDetailEditing.value = { ...data };
+    studentClassName.value = data.class_name || "";
     loadStudentPhoto(data.photo_url);
   },
   { immediate: true },
@@ -57,7 +59,7 @@ watch(
     const { data } = await supabase
       .from("tu_students")
       .select(
-        "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url, custom_name",
+        "id, firstname, lastname, gender, birth_date, class_id, student_number, name_display_prefs, photo_url, custom_name",
       )
       .eq("id", id)
       .single();
@@ -65,6 +67,13 @@ watch(
     if (data) {
       studentDetailEditing.value = { ...data };
       loadStudentPhoto(data.photo_url);
+
+      const { data: classData } = await supabase
+        .from("tu_classes")
+        .select("name")
+        .eq("id", data.class_id)
+        .maybeSingle();
+      studentClassName.value = classData?.name || "";
 
       // Also update the cached allStudents with fresh data
       const idx = props.allStudents.findIndex((s) => s.id === id);
@@ -177,26 +186,38 @@ async function deleteStudent() {
   <div class="student-detail-column">
     <div class="student-detail-layout">
       <!-- Photo placeholder -->
-      <div v-if="studentDetailEditing" class="student-detail-photo">
-        <img
-          v-if="studentPhotoUrl"
-          :src="studentPhotoUrl"
-          :alt="`${studentDetailEditing?.firstname || studentData?.firstname} ${studentDetailEditing?.lastname || studentData?.lastname}`"
-          class="student-photo-img"
-          @error="
-            (e) => {
-              console.log('Image load error:', e.target.src);
-              e.target.style.display = 'none';
-            }
-          "
-        />
-        <div v-else class="student-photo-circle">
-          <span class="student-photo-initials">{{
-            getInitials(
-              studentDetailEditing?.firstname || studentData?.firstname,
-              studentDetailEditing?.lastname || studentData?.lastname,
-            )
-          }}</span>
+      <div v-if="studentDetailEditing" class="student-detail-photo-group">
+        <div class="student-detail-photo">
+          <img
+            v-if="studentPhotoUrl"
+            :src="studentPhotoUrl"
+            :alt="`${studentDetailEditing?.firstname || studentData?.firstname} ${studentDetailEditing?.lastname || studentData?.lastname}`"
+            class="student-photo-img"
+            @error="
+              (e) => {
+                console.log('Image load error:', e.target.src);
+                e.target.style.display = 'none';
+              }
+            "
+          />
+          <div v-else class="student-photo-circle">
+            <span class="student-photo-initials">{{
+              getInitials(
+                studentDetailEditing?.firstname || studentData?.firstname,
+                studentDetailEditing?.lastname || studentData?.lastname,
+              )
+            }}</span>
+          </div>
+        </div>
+        <div class="student-detail-identifiers">
+          <div v-if="studentClassName || studentData?.class_name">
+            <span class="student-detail-identifier-label">Classe</span>
+            <strong>{{ studentClassName || studentData?.class_name }}</strong>
+          </div>
+          <div v-if="studentDetailEditing.student_number">
+            <span class="student-detail-identifier-label">No dans la classe</span>
+            <strong>{{ studentDetailEditing.student_number }}</strong>
+          </div>
         </div>
       </div>
 
@@ -302,7 +323,7 @@ async function deleteStudent() {
             </label>
           </div>
         </div>
-        <div v-if="studentData.class_name" class="detail-section">
+        <div v-if="studentClassName || studentData.class_name" class="detail-section">
           <label class="detail-label">Classe</label>
           <span class="class-pill">{{ studentData.class_name }}</span>
         </div>
@@ -340,6 +361,34 @@ async function deleteStudent() {
 
 .student-detail-photo {
   flex-shrink: 0;
+}
+
+.student-detail-photo-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.student-detail-identifiers {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--text-light);
+}
+
+.student-detail-identifiers > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.student-detail-identifier-label {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.student-detail-identifiers strong {
+  font-size: 1.15rem;
 }
 
 .student-photo-circle {
