@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from "vue";
 import { Trash2 } from "@lucide/vue";
-import { supabase } from "../../supabase";
+import { supabase, getStudentPhotoPresignedUrl } from "../../supabase";
 
 const props = defineProps({
   studentId: { type: [String, Number], default: null },
@@ -15,6 +15,21 @@ const props = defineProps({
 const emit = defineEmits(["close", "deleted", "data-changed"]);
 
 const studentDetailEditing = ref(null);
+const studentPhotoUrl = ref(null);
+let photoUrlRequest = 0;
+
+async function loadStudentPhoto(photoUrl) {
+  const requestId = ++photoUrlRequest;
+  if (!photoUrl) {
+    studentPhotoUrl.value = null;
+    return;
+  }
+
+  const { presignedUrl } = await getStudentPhotoPresignedUrl(photoUrl);
+  if (requestId === photoUrlRequest) {
+    studentPhotoUrl.value = presignedUrl;
+  }
+}
 
 // Initialize from props immediately for responsive UI
 watch(
@@ -27,6 +42,7 @@ watch(
 
     // Use prop data immediately for responsive UI
     studentDetailEditing.value = { ...data };
+    loadStudentPhoto(data.photo_url);
   },
   { immediate: true },
 );
@@ -48,6 +64,7 @@ watch(
 
     if (data) {
       studentDetailEditing.value = { ...data };
+      loadStudentPhoto(data.photo_url);
 
       // Also update the cached allStudents with fresh data
       const idx = props.allStudents.findIndex((s) => s.id === id);
@@ -162,8 +179,8 @@ async function deleteStudent() {
       <!-- Photo placeholder -->
       <div v-if="studentDetailEditing" class="student-detail-photo">
         <img
-          v-if="studentDetailEditing?.photo_url || studentData?.photo_url"
-          :src="studentDetailEditing?.photo_url || studentData?.photo_url"
+          v-if="studentPhotoUrl"
+          :src="studentPhotoUrl"
           :alt="`${studentDetailEditing?.firstname || studentData?.firstname} ${studentDetailEditing?.lastname || studentData?.lastname}`"
           class="student-photo-img"
           @error="

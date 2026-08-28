@@ -4,31 +4,34 @@
 
 **Endpoint:** `POST /api/generate-presigned-url.php`
 
-Generates a presigned URL for direct browser upload to OVHcloud Object Storage (S3-compatible).
+Generates a short-lived presigned PUT URL for direct browser upload to OVHcloud Object Storage (S3-compatible).
 
 ### Request
 
-```json
-{
-  "studentId": "uuid-of-student",
-  "filename": "original-filename.jpg"
-}
-```
+Send the fields as `multipart/form-data`:
+
+- `studentId` - the student's UUID
+- `filename` - the original filename
+- `content_type` - the file MIME type
+
+````
 
 ### Response
 
 ```json
 {
-  "presignedUrl": "https://s3.bhs.io.cloud.ovh.net/young-blackett/{student-id}.jpg?X-Amz-...",
-  "publicUrl": "https://s3.bhs.io.cloud.ovh.net/young-blackett/{student-id}.jpg",
-  "filename": "{student-id}.jpg",
-  "expiresIn": 3600
+  "success": true,
+  "url": "https://s3.bhs.io.cloud.ovh.net/young-blackett/{unique-filename}.jpg?X-Amz-...",
+  "filename": "{unique-filename}.jpg",
+  "publicUrl": "https://s3.bhs.io.cloud.ovh.net/young-blackett/{unique-filename}.jpg"
 }
-```
+````
+
+Upload the raw file with `PUT` and the exact same `Content-Type` sent to the endpoint. The URL expires after 15 minutes.
 
 ### Configuration
 
-The endpoint uses environment variables for OVHcloud S3 credentials (secure, not committed to Git):
+The endpoint uses environment variables for OVHcloud S3 credentials (secure, never exposed to the browser and not committed to Git):
 
 **Required Environment Variables:**
 
@@ -85,7 +88,7 @@ After deployment, manually create `/api/.env` on your OVH server with your crede
 
 ### Security Notes
 
-⚠️ **IMPORTANT:** The current implementation has hardcoded credentials for development purposes. For production:
+⚠️ **IMPORTANT:** For production:
 
 1. Move credentials to environment variables or a secure configuration file
 2. Add authentication/authorization to the endpoint
@@ -96,23 +99,23 @@ After deployment, manually create `/api/.env` on your OVH server with your crede
 ### Usage Example
 
 ```javascript
-// Frontend JavaScript
+const formData = new FormData();
+formData.append("studentId", student.id);
+formData.append("filename", file.name);
+formData.append("content_type", file.type);
+
 const response = await fetch("/api/generate-presigned-url.php", {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    studentId: "123e4567-e89b-12d3-a456-426614174000",
-    filename: "photo.jpg",
-  }),
+  body: formData,
 });
 
-const { presignedUrl, publicUrl } = await response.json();
+const { url, publicUrl } = await response.json();
 
 // Upload file directly to S3
-await fetch(presignedUrl, {
+await fetch(url, {
   method: "PUT",
-  body: compressedFile,
-  headers: { "Content-Type": "image/jpeg" },
+  body: file,
+  headers: { "Content-Type": file.type },
 });
 
 // Use publicUrl to display the image
@@ -121,12 +124,12 @@ console.log("Photo available at:", publicUrl);
 
 ### File Naming Convention
 
-Files are stored with the student's Supabase UUID as the filename:
+Files are stored with the student's Supabase UUID and a server-generated unique identifier:
 
-- Format: `{student_id}.{extension}`
-- Example: `123e4567-e89b-12d3-a456-426614174000.jpg`
+- Format: `{student_id}-{uniqid}.{extension}`
+- Example: `123e4567-e89b-12d3-a456-426614174000-68ad1234abcd.jpg`
 - All files are stored in the root of the bucket (flat structure)
-- Uploading a new photo for the same student will overwrite the previous one
+- Uploading a new photo for the same student creates a new unique object
 
 ### Image Specifications
 

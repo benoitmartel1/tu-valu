@@ -749,62 +749,46 @@ async function uploadPictures() {
         // Compress image
         const compressedFile = await compressImage(match.file);
 
-        // Get POST policy and signature from PHP backend
+        // Get a short-lived PUT URL from the PHP backend.
         // Use /api/ prefix for local dev (proxied by Vite), full path for production
         const apiUrl = import.meta.env.DEV
           ? "/api/generate-presigned-url.php"
           : import.meta.env.BASE_URL + "api/generate-presigned-url.php";
 
+        const signatureData = new FormData();
+        signatureData.append("studentId", match.student.id);
+        signatureData.append("filename", compressedFile.name);
+        signatureData.append("content_type", compressedFile.type);
+
         const response = await fetch(apiUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            studentId: match.student.id,
-            filename: compressedFile.name,
-          }),
+          body: signatureData,
         });
 
+        const responseData = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(
-            `Failed to get upload policy: ${response.statusText}`,
+            responseData?.error ||
+              `Failed to get upload URL: ${response.statusText}`,
           );
         }
 
-        const {
-          uploadUrl,
-          policy,
-          signature,
-          key,
-          algorithm,
-          credential,
-          date,
-          publicUrl,
-        } = await response.json();
+        const { success, url, filename, publicUrl } = responseData || {};
+        if (!success || !url || !filename || !publicUrl) {
+          throw new Error("Invalid upload URL response");
+        }
 
-        console.log("Upload policy response:", {
+        console.log("Upload URL response:", {
           studentId: match.student.id,
-          key: key,
+          filename,
           publicUrl: publicUrl,
-          uploadUrl: uploadUrl,
         });
 
-        // Upload using POST with multipart/form-data
-        const formData = new FormData();
-        formData.append("key", key);
-        formData.append("policy", policy);
-        formData.append("x-amz-algorithm", algorithm);
-        formData.append("x-amz-credential", credential);
-        formData.append("x-amz-date", date);
-        formData.append("x-amz-signature", signature);
-        formData.append("acl", "public-read");
-        formData.append("Content-Type", "image/jpeg");
-        formData.append("file", compressedFile);
-
-        const uploadResponse = await fetch(uploadUrl, {
-          method: "POST",
-          body: formData,
+        // The signed Content-Type must match the header sent with the PUT.
+        const uploadResponse = await fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": compressedFile.type },
+          body: compressedFile,
         });
 
         if (!uploadResponse.ok && uploadResponse.status !== 204) {

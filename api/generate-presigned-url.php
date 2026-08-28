@@ -1,16 +1,15 @@
 <?php
 /**
- * Generate presigned URL for OVHcloud S3 upload
- * 
- * This endpoint generates a presigned URL that allows direct browser upload
- * to OVHcloud Object Storage (S3-compatible).
- * 
- * Usage: POST /api/generate-presigned-url.php
- * Body: { "studentId": "uuid", "filename": "original.jpg" }
+ * Generate a presigned URL for an OVHcloud S3 upload.
  */
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+$allowedOrigins = ['http://localhost:5173', 'https://dev.benoitmartel.com'];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Vary: Origin');
+}
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
@@ -23,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // Only allow POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
     exit();
 }
 
@@ -40,7 +39,17 @@ if (file_exists($envFile)) {
     }
 }
 
-// OVHcloud S3 Configuration
+$autoloadFile = __DIR__ . '/vendor/autoload.php';
+if (!is_file($autoloadFile)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Server dependencies are not installed']);
+    exit();
+}
+require $autoloadFile;
+
+use Aws\S3\S3Client;
+
+// OVHcloud S3 configuration is kept on the server.
 define('OVH_S3_ENDPOINT', getenv('OVH_S3_ENDPOINT') ?: 'https://s3.bhs.io.cloud.ovh.net');
 define('OVH_S3_BUCKET', getenv('OVH_S3_BUCKET') ?: 'young-blackett');
 define('OVH_S3_REGION', getenv('OVH_S3_REGION') ?: 'bhs');
@@ -50,77 +59,70 @@ define('OVH_S3_SECRET_KEY', getenv('OVH_S3_SECRET_KEY'));
 // Validate that credentials are set
 if (!OVH_S3_ACCESS_KEY || !OVH_S3_SECRET_KEY) {
     http_response_code(500);
-    echo json_encode(['error' => 'S3 credentials not configured']);
+    echo json_encode(['success' => false, 'error' => 'S3 credentials not configured']);
     exit();
 }
 
-// Get request body
-$input = json_decode(file_get_contents('php://input'), true);
+// Accept multipart/form-data from the browser, with JSON retained for API clients.
+$input = $_POST;
+if (!$input) {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+}
 
-if (!$input || !isset($input['studentId']) || !isset($input['filename'])) {
+if (!isset($input['studentId'], $input['filename'])) {
     http_response_code(400);
-    echo json_encode(['error' => 'Missing required fields: studentId, filename']);
+    echo json_encode(['success' => false, 'error' => 'Missing required fields: studentId, filename']);
     exit();
 }
 
-$studentId = $input['studentId'];
-$originalFilename = $input['filename'];
+$studentId = trim((string) $input['studentId']);
+$originalFilename = basename((string) $input['filename']);
+$contentType = trim((string) ($input['content_type'] ?? 'application/octet-stream'));
 
-// Extract file extension
-$extension = pathinfo($originalFilename, PATHINFO_EXTENSION);
-if (!$extension) {
-    $extension = 'jpg';
+if (!preg_match('/^[a-f0-9-]{36}$/i', $studentId) || $originalFilename === '') {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Invalid upload metadata']);
+    exit();
 }
 
-// Generate secure filename using student ID
-$filename = $studentId . '.' . strtolower($extension);
+if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9!#$&^_.+-]{0,126}\/[a-zA-Z0-9][a-zA-Z0-9!#$&^_.+-]{0,126}$/', $contentType)) {
+    $contentType = 'application/octet-stream';
+}
 
-// Generate POST Policy and Signature for browser upload
-$expires = 3600; // Policy expires in 1 hour
-$timestamp = time();
-$expiration = gmdate('Y-m-d\TH:i:s.000\Z', $timestamp + $expires);
-$date = gmdate('Ymd', $timestamp);
-$datetime = gmdate('Ymd\THis\Z', $timestamp);
+// Keep the original extension while making every object key unique.
+$extension = pathinfo($originalFilename, PATHINFO_EXTENSION);
+$safeExtension = preg_replace('/[^a-z0-9]/i', '', $extension);
+$filename = $studentId . '-' . uniqid('', true) . ($safeExtension ? '.' . strtolower($safeExtension) : '.dat');
 
-// Create POST Policy
-$policy = [
-    'expiration' => $expiration,
-    'conditions' => [
-        ['bucket' => OVH_S3_BUCKET],
-        ['starts-with', '$key', ''],
-        ['eq', '$x-amz-algorithm', 'AWS4-HMAC-SHA256'],
-        ['eq', '$x-amz-credential', OVH_S3_ACCESS_KEY . '/' . $date . '/' . OVH_S3_REGION . '/s3/aws4_request'],
-        ['eq', '$x-amz-date', $datetime],
-        ['eq', '$content-type', 'image/jpeg'],
-        ['eq', '$acl', 'public-read'],
-        ['content-length-range', 1, 10485760] // 1 byte to 10 MB
-    ]
-];
+try {
+    $s3 = new S3Client([
+        'version' => 'latest',
+        'region' => OVH_S3_REGION,
+        'endpoint' => OVH_S3_ENDPOINT,
+        'credentials' => [
+            'key' => OVH_S3_ACCESS_KEY,
+            'secret' => OVH_S3_SECRET_KEY,
+        ],
+        'use_path_style_endpoint' => true,
+    ]);
 
-// Base64 encode the policy
-$policyJson = json_encode($policy);
-$policyBase64 = base64_encode($policyJson);
+    $command = $s3->getCommand('PutObject', [
+        'Bucket' => OVH_S3_BUCKET,
+        'Key' => $filename,
+        'ContentType' => $contentType,
+    ]);
+    $request = $s3->createPresignedRequest($command, '+15 minutes');
+    $url = (string) $request->getUri();
+    $publicUrl = rtrim(OVH_S3_ENDPOINT, '/') . '/' . rawurlencode(OVH_S3_BUCKET) . '/' . rawurlencode($filename);
 
-// Calculate SigV4 signature
-$kDate = hash_hmac('sha256', $date, 'AWS4' . OVH_S3_SECRET_KEY, true);
-$kRegion = hash_hmac('sha256', OVH_S3_REGION, $kDate, true);
-$kService = hash_hmac('sha256', 's3', $kRegion, true);
-$kSigning = hash_hmac('sha256', 'aws4_request', $kService, true);
-$signature = hash_hmac('sha256', $policyBase64, $kSigning);
-
-// Build the upload URL (virtual-hosted style)
-$uploadUrl = 'https://' . OVH_S3_BUCKET . '.s3.' . OVH_S3_REGION . '.io.cloud.ovh.net/';
-
-// Return the policy, signature, and upload details
-echo json_encode([
-    'uploadUrl' => $uploadUrl,
-    'policy' => $policyBase64,
-    'signature' => $signature,
-    'key' => $filename,
-    'algorithm' => 'AWS4-HMAC-SHA256',
-    'credential' => OVH_S3_ACCESS_KEY . '/' . $date . '/' . OVH_S3_REGION . '/s3/aws4_request',
-    'date' => $datetime,
-    'publicUrl' => 'https://' . OVH_S3_BUCKET . '.s3.' . OVH_S3_REGION . '.io.cloud.ovh.net/' . $filename,
-    'filename' => $filename,
-    'expiresIn' => $expires
-]);
+    echo json_encode([
+        'success' => true,
+        'url' => $url,
+        'filename' => $filename,
+        'publicUrl' => $publicUrl,
+    ]);
+} catch (Throwable $error) {
+    error_log('Failed to generate S3 presigned URL: ' . $error->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Unable to generate upload URL']);
+}

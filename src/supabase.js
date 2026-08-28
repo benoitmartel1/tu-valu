@@ -145,10 +145,10 @@ export async function resetPassword(email) {
 
 /**
  * Get a presigned URL for viewing a private student photo
- * @param {string} studentId - The UUID of the student
+ * @param {string} photoUrl - The stored S3 object URL
  * @returns {Promise<{presignedUrl: string, expiresIn: number}>}
  */
-export async function getStudentPhotoPresignedUrl(studentId) {
+export async function getStudentPhotoPresignedUrl(photoUrl) {
   try {
     // Use /api/ prefix for local dev (proxied by Vite), full path for production
     const apiUrl = import.meta.env.DEV
@@ -160,7 +160,7 @@ export async function getStudentPhotoPresignedUrl(studentId) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ studentId }),
+      body: JSON.stringify({ photo_url: photoUrl }),
     });
 
     if (!response.ok) {

@@ -1,5 +1,6 @@
 # Environment variables - NEVER commit this file
 .env
+vendor/
 
 # PHP cache
 __pycache__/
