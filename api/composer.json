@@ -1,10 +1,11 @@
 {
   "config": {
     "platform": {
-      "php": "8.3.6"
+      "php": "8.1.0"
     }
   },
   "require": {
-    "aws/aws-sdk-php": "^3.0"
+    "aws/aws-sdk-php": "^3.0",
+    "symfony/filesystem": "^6.4.3"
   }
 }
