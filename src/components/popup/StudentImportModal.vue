@@ -35,6 +35,80 @@ function levenshteinDistance(str1, str2) {
   return dp[m][n];
 }
 
+function normalizeName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function longestCommonSubstringLength(first, second) {
+  let longest = 0;
+  const lengths = Array(second.length + 1).fill(0);
+
+  for (let firstIndex = 1; firstIndex <= first.length; firstIndex++) {
+    for (let secondIndex = second.length; secondIndex > 0; secondIndex--) {
+      if (first[firstIndex - 1] === second[secondIndex - 1]) {
+        lengths[secondIndex] = lengths[secondIndex - 1] + 1;
+        longest = Math.max(longest, lengths[secondIndex]);
+      } else {
+        lengths[secondIndex] = 0;
+      }
+    }
+  }
+
+  return longest;
+}
+
+function findStudentByFilename(filename, students) {
+  const normalizedFilename = normalizeName(filename.replace(/\.[^/.]+$/, ""));
+  if (normalizedFilename.length < 4) return null;
+
+  const scoredStudents = students
+    .map((student) => {
+      const firstname = normalizeName(student.firstname);
+      const lastname = normalizeName(student.lastname);
+      const firstMatch = firstname && normalizedFilename.includes(firstname);
+      const lastMatch = lastname && normalizedFilename.includes(lastname);
+      const exactPartsScore = firstMatch && lastMatch ? 100 : 0;
+      const longestPart = Math.max(
+        longestCommonSubstringLength(normalizedFilename, firstname),
+        longestCommonSubstringLength(normalizedFilename, lastname),
+      );
+
+      let score = exactPartsScore;
+      if (!score && longestPart >= 4) {
+        score = 50 + Math.min(longestPart, 20);
+      }
+
+      const filenameParts = filename
+        .replace(/\.[^/.]+$/, "")
+        .split(/[_\s,-]+/)
+        .map(normalizeName)
+        .filter(Boolean);
+      const fuzzyDistance = Math.min(
+        ...filenameParts.flatMap((part) => [
+          levenshteinDistance(part, firstname),
+          levenshteinDistance(part, lastname),
+        ]),
+      );
+      if (!score && fuzzyDistance <= 2 && filenameParts.length > 0) {
+        score = 40;
+      }
+
+      return { student, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((first, second) => second.score - first.score);
+
+  const best = scoredStudents[0];
+  const runnerUp = scoredStudents[1];
+  if (!best || (runnerUp && best.score === runnerUp.score)) return null;
+
+  return best.student;
+}
+
 const emit = defineEmits(["close", "imported"]);
 
 // Import type selection
@@ -527,107 +601,17 @@ async function matchStudentsToPictures() {
         } else {
           console.log("  ❌ No match found by student number");
         }
-      } else if (parsed.type === "comma-name" || parsed.type === "name") {
-        console.log(
-          `  → Trying ${parsed.type} match: "${parsed.part1}" and "${parsed.part2}"`,
-        );
-
-        // Try both combinations: part1 as lastname, part2 as firstname AND vice versa
-        const attempts = [
-          { lastname: parsed.part1, firstname: parsed.part2 },
-          { lastname: parsed.part2, firstname: parsed.part1 },
-        ];
-
-        for (const attempt of attempts) {
+      } else {
+        studentMatch = findStudentByFilename(file.name, students);
+        if (studentMatch) {
           console.log(
-            `    → Trying: lastname="${attempt.lastname}", firstname="${attempt.firstname}"`,
-          );
-
-          // First try exact match
-          const exactMatch = students.find(
-            (s) =>
-              s.lastname.toLowerCase() === attempt.lastname.toLowerCase() &&
-              s.firstname.toLowerCase() === attempt.firstname.toLowerCase(),
-          );
-
-          if (exactMatch) {
-            studentMatch = exactMatch;
-            console.log(
-              `    ✅ Found exact match:`,
-              studentMatch.firstname,
-              studentMatch.lastname,
-            );
-            break;
-          }
-
-          // Try lastname similarity with exact firstname
-          const lastnameSimilar = students.find(
-            (s) =>
-              levenshteinDistance(attempt.lastname, s.lastname) <= 2 &&
-              s.firstname.toLowerCase() === attempt.firstname.toLowerCase(),
-          );
-
-          if (lastnameSimilar) {
-            studentMatch = lastnameSimilar;
-            console.log(
-              `    ✅ Found match with similar lastname:`,
-              studentMatch.firstname,
-              studentMatch.lastname,
-            );
-            break;
-          }
-
-          // Try firstname similarity with exact lastname
-          const firstnameSimilar = students.find(
-            (s) =>
-              s.lastname.toLowerCase() === attempt.lastname.toLowerCase() &&
-              levenshteinDistance(attempt.firstname, s.firstname) <= 2,
-          );
-
-          if (firstnameSimilar) {
-            studentMatch = firstnameSimilar;
-            console.log(
-              `    ✅ Found match with similar firstname:`,
-              studentMatch.firstname,
-              studentMatch.lastname,
-            );
-            break;
-          }
-        }
-
-        if (!studentMatch) {
-          console.log("  ❌ No match found with any combination");
-        }
-      } else if (parsed.type === "single-name") {
-        console.log("  → Trying single name match:", parsed.name);
-        // Try lastname first, then firstname across all students
-        const lastnameMatch = students.find(
-          (s) => s.lastname.toLowerCase() === parsed.name.toLowerCase(),
-        );
-        if (lastnameMatch) {
-          studentMatch = lastnameMatch;
-          console.log(
-            "  ✅ Found match by lastname:",
+            "  ✅ Found unique name match:",
             studentMatch.firstname,
             studentMatch.lastname,
           );
         } else {
-          const firstnameMatch = students.find(
-            (s) => s.firstname.toLowerCase() === parsed.name.toLowerCase(),
-          );
-          if (firstnameMatch) {
-            studentMatch = firstnameMatch;
-            console.log(
-              "  ✅ Found match by firstname:",
-              studentMatch.firstname,
-              studentMatch.lastname,
-            );
-          } else {
-            console.log("  ❌ No match found by lastname or firstname");
-          }
+          console.log("  ❌ No unique name match found");
         }
-      } else {
-        console.log("  ⚠️ Unknown parse type:", parsed.type);
       }
 
       if (studentMatch) {
