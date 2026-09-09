@@ -52,6 +52,9 @@ import ClassModal from "./modal/ClassModal.vue";
 import EvalModal from "./modal/EvalModal.vue";
 import ReportModal from "./modal/ReportModal.vue";
 import TeamModal from "./modal/TeamModal.vue";
+import ActionConfirmation from "./popup/ActionConfirmation.vue";
+
+const actionConfirmation = ref(null);
 
 // ── Setup state ───────────────────────────────────────
 const classes = ref([]);
@@ -471,6 +474,16 @@ async function startSession() {
 }
 
 // ── Sorted students ───────────────────────────────────
+function compareStudentNames(a, b, field = "firstname") {
+  const firstname = (student) =>
+    (student.name_display_prefs?.showCustomName && student.custom_name?.trim()) ||
+    student.firstname ||
+    "";
+  const firstnames = firstname(a).localeCompare(firstname(b), "fr-FR");
+  const lastnames = (a.lastname || "").localeCompare(b.lastname || "", "fr-FR");
+  return field === "lastname" ? lastnames || firstnames : firstnames || lastnames;
+}
+
 const sortedStudents = computed(() => {
   const students = [...currentStudents.value];
 
@@ -482,7 +495,7 @@ const sortedStudents = computed(() => {
 
       // Students without teams go to the end
       if (!teamA && !teamB)
-        return (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
+        return compareStudentNames(a, b);
       if (!teamA) return 1;
       if (!teamB) return -1;
 
@@ -496,13 +509,13 @@ const sortedStudents = computed(() => {
       if (teamCompare !== 0) return teamCompare;
 
       // Within same team, sort by firstname
-      return (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
+      return compareStudentNames(a, b);
     });
   } else {
-    // Original sorting logic
+    // Use the displayed nickname as the firstname when enabled.
     const field = sortBy.value === "lastname" ? "lastname" : "firstname";
     students.sort((a, b) => {
-      return (a[field] || "").localeCompare(b[field] || "", "fr-FR");
+      return compareStudentNames(a, b, field);
     });
   }
 
@@ -743,6 +756,11 @@ function onDragEnd() {
     const primaryClassId =
       [...checkedClassIds.value][0] || selectedClassId.value;
     const skill = skills.value.find((s) => s.id === skillId);
+    const confirmationDetails = {
+      studentName: formatStudentName(drag.value.student),
+      skillName: skill?.name || "Habileté",
+      level,
+    };
     const eventPayload = {
       class_id: primaryClassId,
       evaluation_id: skill?.evaluation_id || [...checkedEvalIds.value][0],
@@ -770,7 +788,9 @@ function onDragEnd() {
           skillId,
           level,
           eventId: data.id,
+          confirmationDetails,
         });
+        actionConfirmation.value?.show(confirmationDetails);
         // Refresh report data if the report modal is open
         if (activeModal.value === "report" && reportModalRef.value) {
           reportModalRef.value.loadReportData();
@@ -897,7 +917,9 @@ async function undoLastAction() {
     console.error("Failed to delete event for undo:", error);
     // Re-push the action so the user can retry
     actionHistory.value.push(action);
+    return;
   }
+  actionConfirmation.value?.show(action.confirmationDetails, true);
 }
 
 // ── Clone style (computed for reactivity) ─────────────
@@ -1233,7 +1255,9 @@ defineExpose({
           <BarChart3 :size="20" />
         </button>
       </div>
-      <div class="top-bar-spacer"></div>
+      <div class="top-bar-spacer">
+        <ActionConfirmation ref="actionConfirmation" />
+      </div>
       <div class="top-bar-right">
         <!-- User menu -->
         <div class="user-menu-container">
@@ -2034,6 +2058,7 @@ textarea {
 /* ── Top bar spacer pushes session btn right ──── */
 .top-bar-spacer {
   flex: 1;
+  min-width: 0;
 }
 
 .top-bar-right {

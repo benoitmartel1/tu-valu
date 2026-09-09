@@ -406,7 +406,7 @@ async function deleteStudent() {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); */
 }
 
 .student-photo-img {
@@ -414,7 +414,7 @@ async function deleteStudent() {
   height: 90px;
   border-radius: 50%;
   object-fit: cover;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); */
 }
 
 .student-photo-initials {
@@ -514,6 +514,7 @@ async function deleteStudent() {
 /* Name display options */
 .name-display-options {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   margin-top: 0.5rem;
 }

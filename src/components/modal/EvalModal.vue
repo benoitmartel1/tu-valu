@@ -148,7 +148,7 @@ function onSkillDeleted(id) {
           <!-- Column 1: Evaluations list -->
           <div class="class-column">
             <div class="column-header">
-              <h3>Activités</h3>
+              <h3>Moyens d'action</h3>
               <button
                 class="picker-item picker-item--inline add-btn"
                 @click="addEval"

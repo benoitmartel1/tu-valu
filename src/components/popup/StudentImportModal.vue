@@ -109,7 +109,7 @@ function findStudentByFilename(filename, students) {
   return best.student;
 }
 
-const emit = defineEmits(["close", "imported"]);
+const emit = defineEmits(["close", "imported", "photos-imported"]);
 
 // Import type selection
 const importType = ref(null); // 'students' or 'pictures'
@@ -817,6 +817,9 @@ async function uploadPictures() {
     }
 
     pictureStep.value = "results";
+    if (uploadResults.value.some((result) => result.success)) {
+      emit("photos-imported");
+    }
   } catch (err) {
     console.error("Upload failed:", err);
     errorMessage.value = "Erreur lors de l'import des photos.";

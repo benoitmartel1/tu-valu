@@ -330,6 +330,7 @@ function onStudentImported() {
         v-if="studentImportOpen"
         @close="studentImportOpen = false"
         @imported="onStudentImported"
+        @photos-imported="emit('data-changed')"
       />
     </div>
   </div>
