@@ -368,66 +368,63 @@ function chartPath(data, yMin, yMax) {
 }
 
 // ── Export report ──────────────────────────────────────
-function exportReport() {
+function reportClassName(student) {
+  const classId = student.class_id ?? studentClassMap.value[student.id];
+  return props.classes.find((cls) => cls.id === classId)?.name || "";
+}
+
+function exportLatestReport() {
+  if (!reportData.value) return;
+  const { students, skills } = reportData.value;
+  const header = ["Classe", "Élève", ...skills.map((skill) => skill.name)];
+  const rows = students.map((student) => [
+    reportClassName(student),
+    formatStudentFullName(student),
+    ...skills.map((skill) => studentSkillLast(student.id, skill.id) ?? ""),
+  ]);
+  downloadReportCsv("sommaire", [header, ...rows]);
+}
+
+function exportAllReport() {
   if (!reportData.value) return;
   const { students, skills, events } = reportData.value;
-
-  const stats = {};
-  for (const s of students) {
-    stats[s.id] = {};
-    for (const sk of skills) {
-      const evts = events.filter(
-        (e) => e.student_id === s.id && e.skill_id === sk.id,
-      );
-      if (evts.length === 0) continue;
-      const levels = evts
-        .map((e) => parseFloat(e.level))
-        .filter((v) => !isNaN(v));
-      const sorted = [...evts].sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at),
-      );
-      stats[s.id][sk.id] = {
-        nb: evts.length,
-        min: Math.min(...levels),
-        max: Math.max(...levels),
-        avg: levels.reduce((a, b) => a + b, 0) / levels.length,
-        last: sorted[0].level,
-      };
-    }
-  }
-
-  const esc = (v) => {
-    const s = String(v ?? "");
-    return s.includes(",") || s.includes('"') || s.includes("\n")
-      ? '"' + s.replace(/"/g, '""') + '"'
-      : s;
-  };
-
-  const header = ["Classe", "Élève", ...skills.map((sk) => sk.name)];
-  const rows = students.map((s) => {
-    const classId = studentClassMap.value[s.id];
-    const cls = props.classes.find((c) => c.id === classId);
-    const className = cls?.name || "";
-    const name = `${s.firstname} ${s.lastname}`;
-    const vals = skills.map((sk) => {
-      const st = stats[s.id]?.[sk.id];
-      if (!st) return "";
-      return `${st.nb} (min:${st.min} max:${st.max} moy:${st.avg.toFixed(1)} dernier:${st.last})`;
+  const studentsById = new Map(students.map((student) => [student.id, student]));
+  const skillsById = new Map(skills.map((skill) => [skill.id, skill]));
+  const rows = events
+    .filter((event) => studentsById.has(event.student_id) && skillsById.has(event.skill_id))
+    .slice()
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .map((event) => {
+      const student = studentsById.get(event.student_id);
+      return [
+        reportClassName(student),
+        formatStudentFullName(student),
+        skillsById.get(event.skill_id).name,
+        event.level,
+        event.created_at,
+      ];
     });
-    return [className, name, ...vals];
-  });
+  downloadReportCsv("log", [
+    ["Classe", "Élève", "Compétence", "Évaluation", "Horodatage"],
+    ...rows,
+  ]);
+}
 
-  const csv = [header, ...rows].map((r) => r.map(esc).join(",")).join("\n");
-
+function downloadReportCsv(name, rows) {
+  const esc = (value) => {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const csv = rows.map((row) => row.map(esc).join(",")).join("\r\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `rapport_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `rapport_${name}_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // Expose methods for parent
@@ -457,10 +454,22 @@ defineExpose({
           <button
             class="export-btn"
             :disabled="!reportData"
-            title="Exporter en CSV"
-            @click="$emit('export-report')"
+            title="Exporter le sommaire en CSV"
+            aria-label="Exporter le sommaire en CSV"
+            @click="exportLatestReport"
           >
             <Download :size="22" />
+            <span>Sommaire</span>
+          </button>
+          <button
+            class="export-btn"
+            :disabled="!reportData"
+            title="Exporter le log avec horodatage en CSV"
+            aria-label="Exporter le log avec horodatage en CSV"
+            @click="exportAllReport"
+          >
+            <Download :size="22" />
+            <span>Log</span>
           </button>
         </aside>
         <div class="report-body">
@@ -912,9 +921,13 @@ defineExpose({
 }
 
 .export-btn {
-  width: 38px;
-  height: 38px;
+  min-width: 64px;
+  min-height: 54px;
+  padding: 6px;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.65rem;
   align-items: center;
   justify-content: center;
   border: none;
