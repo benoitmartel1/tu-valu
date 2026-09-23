@@ -835,6 +835,7 @@ function resetPictureImport() {
   uploadResults.value = [];
   pictureStep.value = "select";
   errorMessage.value = "";
+  emit("close");
 }
 
 function close() {

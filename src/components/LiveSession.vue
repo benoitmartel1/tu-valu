@@ -475,11 +475,7 @@ async function startSession() {
 
 // ── Sorted students ───────────────────────────────────
 function compareStudentNames(a, b, field = "firstname") {
-  const firstname = (student) =>
-    (student.name_display_prefs?.showCustomName && student.custom_name?.trim()) ||
-    student.firstname ||
-    "";
-  const firstnames = firstname(a).localeCompare(firstname(b), "fr-FR");
+  const firstnames = (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
   const lastnames = (a.lastname || "").localeCompare(b.lastname || "", "fr-FR");
   return field === "lastname" ? lastnames || firstnames : firstnames || lastnames;
 }
@@ -512,7 +508,7 @@ const sortedStudents = computed(() => {
       return compareStudentNames(a, b);
     });
   } else {
-    // Use the displayed nickname as the firstname when enabled.
+    // Sort by actual names independently of display preferences.
     const field = sortBy.value === "lastname" ? "lastname" : "firstname";
     students.sort((a, b) => {
       return compareStudentNames(a, b, field);
