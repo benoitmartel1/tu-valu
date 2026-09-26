@@ -1,0 +1,187 @@
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #161b22;
+  --surface-muted: #21262d;
+  --border-color: #484f58;
+  --text-light: #f0f6fc;
+  --text-muted: #b1bac4;
+  --court-blue: #0d1117;
+  --bg-dark: #161b22;
+  --turf-green: #238636;
+  --track-red: #a33b36;
+  --stadium-yellow: #21262d;
+  --team-gray: #30363d;
+  --student-bg: #214e75;
+  --priority-color: #f2cc60;
+  --accent: #58a6ff;
+  --danger: #ff7b72;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-muted: #f0f3f6;
+  --border-color: #8c959f;
+  --text-light: #1f2328;
+  --text-muted: #59636e;
+  --court-blue: #f6f8fa;
+  --bg-dark: #ffffff;
+  --turf-green: #dafbe1;
+  --track-red: #ffebe9;
+  --stadium-yellow: #f0f3f6;
+  --team-gray: #eaeef2;
+  --student-bg: #c9e4ff;
+  --priority-color: #9a6700;
+  --accent: #0969da;
+  --danger: #b42318;
+}
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.feature-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  margin-bottom: 0.8rem;
+  min-width: 0;
+}
+.feature-fields label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.feature-fields input:not([type="checkbox"]),
+.feature-fields select,
+.feature-fields textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-light);
+}
+.feature-fields input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.feature-fields button,
+.feature-toolbar button,
+.feature-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  color: var(--text-light);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  min-height: 36px;
+}
+.feature-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  align-items: center;
+}
+.feature-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.feature-toolbar select,
+.match-student-info select {
+  max-width: 100%;
+  background: var(--surface);
+  color: var(--text-light);
+  padding: 0.4rem;
+}
+.feature-error,
+[role="alert"] {
+  color: var(--danger);
+  padding: 0.5rem;
+}
+.feature-fields small {
+  color: var(--text-muted);
+}
+.observation-log {
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  margin-bottom: 1rem;
+  border-radius: 8px;
+}
+.observation-log p {
+  padding: 0.4rem;
+}
+/* Common surfaces use the same theme in dialogs and the live view. */
+.popup-modal,
+.user-menu-popup,
+.student-import-actions,
+.student-import-table-wrap table,
+.student-import-table-wrap th,
+.settings-option,
+.settings-option.active {
+  background: var(--surface) !important;
+  color: var(--text-light) !important;
+}
+.popup-header h2,
+.popup-close,
+.settings-section-title,
+.detail-label,
+.student-import-field label,
+.student-import-label {
+  color: var(--text-light) !important;
+}
+.detail-input,
+.range-input {
+  background: var(--surface-muted) !important;
+  color: var(--text-light) !important;
+}
+.settings-option.active {
+  border-color: var(--accent);
+}
+@media (max-width: 700px) {
+  .popup-backdrop {
+    padding: 0.5rem !important;
+  }
+  .popup-modal {
+    width: 96vw !important;
+    height: 90dvh !important;
+  }
+}

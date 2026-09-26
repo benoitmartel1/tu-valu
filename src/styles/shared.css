@@ -146,11 +146,6 @@
   border-radius: 4px;
 }
 
-.class-list::-webkit-scrollbar-thumb:hover,
-.student-list::-webkit-scrollbar-thumb:hover {
-  background: #3a6a87;
-}
-
 /* Firefox scrollbar */
 .class-list,
 .student-list {
@@ -182,7 +177,7 @@
   transition: opacity 0.2s;
 }
 
-.edit-class-btn-small:hover {
+.edit-class-btn-small:focus-visible {
   opacity: 1;
 }
 

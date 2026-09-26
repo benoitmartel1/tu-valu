@@ -1,7 +1,11 @@
 <script setup>
+import { preferences } from "../../stores/preferences";
 import Popup from "./Popup.vue";
 
 const props = defineProps({
+  activeTeamIds: { type: Array, default: () => [] },
+  teamBatches: { type: Array, default: () => [] },
+  teamBatchId: String,
   show: { type: Boolean, required: true },
   sortBy: { type: String, required: true },
   genderFilter: { type: String, required: true },
@@ -12,6 +16,9 @@ const props = defineProps({
 
 const emit = defineEmits([
   "close",
+  "update:activeTeamIds",
+  "update:teamBatchId",
+  "reset-priorities",
   "update:sortBy",
   "update:genderFilter",
   "update:teamsActive",
@@ -41,9 +48,51 @@ function getTeamColor(teamId) {
 <template>
   <Popup v-if="show" title="Paramètres" @close="$emit('close')">
     <div class="settings-content">
+      <section class="feature-fields">
+        <h3>Affichage global</h3>
+        <label
+          ><input type="checkbox" v-model="preferences.showPhoto" /> Photos des
+          élèves</label
+        >
+        <label
+          ><input type="checkbox" v-model="preferences.individual" /> Respecter
+          les choix individuels</label
+        >
+        <template v-if="!preferences.individual"
+          ><label
+            v-for="option in [
+              { key: 'showFirstname', label: 'Prénom' },
+              { key: 'showLastname', label: 'Nom' },
+              { key: 'showInitial', label: 'Initiale du nom' },
+              { key: 'showCustomName', label: 'Surnom' },
+            ]"
+            :key="option.key"
+            ><input type="checkbox" v-model="preferences[option.key]" />
+            {{ option.label }}</label
+          ></template
+        >
+        <label
+          >Thème<select v-model="preferences.theme">
+            <option value="dark">Sombre</option>
+            <option value="light">Clair</option>
+          </select></label
+        >
+        <button @click="$emit('reset-priorities')">
+          Réinitialiser les priorités
+        </button>
+      </section>
       <!-- Sort by section -->
       <div class="settings-section">
         <h3 class="settings-section-title">Trier par</h3>
+        <label
+          ><input
+            type="radio"
+            name="sortBy"
+            :checked="sortBy === 'ability'"
+            @change="$emit('update:sortBy', 'ability')"
+          />
+          Niveau d’habileté</label
+        >
         <div class="settings-options">
           <label
             class="settings-option"
@@ -147,17 +196,31 @@ function getTeamColor(teamId) {
             {{ teamsActive ? "Désactiver" : "Activer" }}
           </button>
         </div>
+        <label
+          >Ensemble d’équipes<select
+            :value="teamBatchId"
+            @change="$emit('update:teamBatchId', $event.target.value)"
+          >
+            <option v-for="(id, index) in teamBatches" :key="id" :value="id">
+              {{
+                id === "legacy"
+                  ? "Anciennes équipes"
+                  : `Ensemble ${teamBatches.length - index}`
+              }}
+            </option>
+          </select></label
+        >
         <div v-if="teamsActive" class="settings-options">
           <label
             class="settings-option"
-            :class="{ active: activeTeamId === null }"
+            :class="{ active: !activeTeamIds.length }"
           >
             <input
-              type="radio"
+              type="checkbox"
               name="teamFilter"
               :value="null"
-              :checked="activeTeamId === null"
-              @change="$emit('update:activeTeamId', null)"
+              :checked="!activeTeamIds.length"
+              @change="$emit('update:activeTeamIds', [])"
             />
             <span>Toutes</span>
           </label>
@@ -165,17 +228,24 @@ function getTeamColor(teamId) {
             v-for="team in teams"
             :key="team.id"
             class="settings-option"
-            :class="{ active: activeTeamId === team.id }"
+            :class="{ active: activeTeamIds.includes(team.id) }"
             :style="{
               borderLeft: `4px solid ${getTeamColor(team.id)}`,
             }"
           >
             <input
-              type="radio"
+              type="checkbox"
               name="teamFilter"
               :value="team.id"
-              :checked="activeTeamId === team.id"
-              @change="$emit('update:activeTeamId', team.id)"
+              :checked="activeTeamIds.includes(team.id)"
+              @change="
+                $emit(
+                  'update:activeTeamIds',
+                  activeTeamIds.includes(team.id)
+                    ? activeTeamIds.filter((id) => id !== team.id)
+                    : [...activeTeamIds, team.id],
+                )
+              "
             />
             <span>{{ team.name }}</span>
           </label>
@@ -209,7 +279,7 @@ function getTeamColor(teamId) {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 700;
-  color: #333;
+  color: var(--text-light);
 }
 
 .settings-options {
@@ -225,13 +295,13 @@ function getTeamColor(teamId) {
   padding: 0.75rem 1rem;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--surface);
   cursor: pointer;
   transition: all 0.15s;
   font-size: 0.95rem;
 }
 
-.settings-option:hover {
+.settings-option:focus-visible {
   background: #e8f0fe;
   border-color: #4a90d9;
 }
@@ -255,15 +325,15 @@ function getTeamColor(teamId) {
   padding: 0.5rem 1rem;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
-  background: #f8f9fa;
-  color: #333;
+  background: var(--surface);
+  color: var(--text-light);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
 
-.toggle-teams-btn:hover {
+.toggle-teams-btn:focus-visible {
   background: #e8f0fe;
   border-color: #4a90d9;
 }

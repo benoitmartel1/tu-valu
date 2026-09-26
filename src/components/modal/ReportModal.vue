@@ -1,6 +1,13 @@
 <script setup>
 import { ref, computed, watch, onMounted } from "vue";
 import { ChevronUp, Download, ChevronLeft, Eye } from "@lucide/vue";
+import { allRows, downloadCsv } from "../../lib/data";
+import {
+  csvText,
+  fullName,
+  numericGrade,
+  displayGrade,
+} from "../../lib/domain";
 import { supabase } from "../../supabase";
 
 const props = defineProps({
@@ -9,6 +16,8 @@ const props = defineProps({
   currentStudents: { type: Array, required: true },
   skills: { type: Array, required: true },
   classes: { type: Array, required: true },
+  teams: { type: Array, default: () => [] },
+  studentTeamMap: { type: Object, default: () => ({}) },
   userId: { type: [String, Number], required: true },
 });
 
@@ -16,6 +25,25 @@ const emit = defineEmits(["close"]);
 
 // ── Internal state ──────────────────────────────────────
 const reportLoading = ref(false);
+const reportError = ref("");
+const observerFilter = ref("");
+let reportRequest = 0;
+const filteredEvents = computed(() =>
+  (reportData.value?.events || []).filter(
+    (e) =>
+      !observerFilter.value ||
+      (e.user_id || "unknown") === observerFilter.value,
+  ),
+);
+const observers = computed(() => [
+  ...new Map(
+    (reportData.value?.events || []).map((e) => [
+      e.user_id || "unknown",
+      e.observer_name ||
+        (e.user_id ? `Observateur ${e.user_id.slice(0, 8)}` : "Inconnu"),
+    ]),
+  ).entries(),
+]);
 const reportData = ref(null); // { sessions: [], students: [], skills: [], events: [] }
 const reportSelectedStudentId = ref(null); // null = list, id = student detail
 
@@ -30,7 +58,10 @@ const reportSelectedStudent = computed(
 const studentClassMap = computed(() => {
   const map = {};
   for (const s of props.currentStudents) {
-    map[s.id] = s.class_id;
+    map[s.id] =
+      (s.class_ids || [s.class_id]).find((id) =>
+        props.checkedClassIds.has(id),
+      ) || s.class_id;
   }
   return map;
 });
@@ -62,107 +93,98 @@ const reportStudentsByClass = computed(() => {
 
 // ── Load report data ────────────────────────────────────
 async function loadReportData() {
-  const classIds = [...props.checkedClassIds];
-  const selectedStudentIds = new Set(props.currentStudents.map((s) => s.id));
-  const selectedSkillIds = new Set(
-    props.skills
-      .filter((sk) => props.checkedSkillIds.has(sk.id))
-      .map((sk) => sk.id),
-  );
-
-  // Determine relevant eval IDs for the report
-  const relevantEvalIdsForReport = new Set();
-  for (const sk of props.skills) {
-    if (props.checkedSkillIds.has(sk.id)) {
-      relevantEvalIdsForReport.add(sk.evaluation_id);
-    }
-  }
-
-  console.log("Report query params:", {
-    classIds,
-    selectedStudentIds: [...selectedStudentIds],
-    selectedSkillIds: [...selectedSkillIds],
-    relevantEvalIds: [...relevantEvalIdsForReport],
-    currentStudentsCount: props.currentStudents.length,
-    checkedSkillsCount: props.checkedSkillIds.size,
-  });
-
+  const request = ++reportRequest;
+  reportLoading.value = true;
+  reportError.value = "";
   try {
-    // Always fetch students and skills based on selections
-    const [studentsRes, skillsRes] = await Promise.all([
-      supabase
-        .from("tu_students")
-        .select("id, firstname, lastname, class_id")
-        .in("id", [...selectedStudentIds]),
-      supabase
-        .from("tu_skills")
-        .select("id, name, scale, icon")
-        .in("id", [...selectedSkillIds]),
-    ]);
-
-    // Only fetch events and sessions if we have skills selected
-    let eventsRes = { data: [] };
-    let sessionsRes = { data: [] };
-
-    if (selectedSkillIds.size > 0 && selectedStudentIds.size > 0) {
-      let eventsQuery = supabase
-        .from("tu_session_events")
-        .select("student_id, skill_id, level, session_id, created_at");
-
-      if (classIds.length > 0) {
-        eventsQuery = eventsQuery.in("class_id", classIds);
+    const selectedStudents = [...props.currentStudents];
+    const selectedSkills = props.skills.filter((sk) =>
+      props.checkedSkillIds.has(sk.id),
+    );
+    const ids = selectedStudents.map((s) => s.id);
+    const events = [];
+    if (selectedSkills.length) {
+      for (let i = 0; i < ids.length; i += 100) {
+        events.push(
+          ...(await allRows(() =>
+            supabase
+              .from("tu_session_events")
+              .select("*")
+              .in("student_id", ids.slice(i, i + 100))
+              .in("evaluation_id", [
+                ...new Set(selectedSkills.map((sk) => sk.evaluation_id)),
+              ])
+              .order("created_at")
+              .order("id"),
+          )),
+        );
       }
-
-      if (relevantEvalIdsForReport.size > 0) {
-        eventsQuery = eventsQuery.in("evaluation_id", [
-          ...relevantEvalIdsForReport,
-        ]);
-      }
-
-      eventsQuery = eventsQuery
-        .in("student_id", [...selectedStudentIds])
-        .order("created_at", { ascending: true });
-
-      const [sessRes, evtRes] = await Promise.all([
-        classIds.length > 0 && relevantEvalIdsForReport.size > 0
-          ? supabase
-              .from("tu_sessions")
-              .select("id, started_at, ended_at")
-              .in("class_id", classIds)
-              .in("evaluation_id", [...relevantEvalIdsForReport])
-              .order("started_at", { ascending: true })
-          : { data: [] },
-        eventsQuery,
-      ]);
-
-      sessionsRes = sessRes;
-      eventsRes = evtRes;
     }
-
-    const reportEvents = (eventsRes.data || []).flatMap((event) => {
-      if (event.level !== "abs" || event.skill_id) return [event];
-
-      return props.skills
-        .filter(
-          (skill) =>
-            selectedSkillIds.has(skill.id) &&
-            skill.evaluation_id === event.evaluation_id,
-        )
-        .map((skill) => ({ ...event, skill_id: skill.id }));
+    const selectedIds = new Set(selectedSkills.map((sk) => sk.id));
+    const reportSkills = selectedSkills.flatMap((sk) =>
+      sk.grading_mode === "rubric"
+        ? sk.criteria.map((criterion) => ({
+            ...sk,
+            id: `${sk.id}:${criterion}`,
+            name: `${sk.name} — ${criterion}`,
+          }))
+        : [sk],
+    );
+    const reportEvents = events.flatMap((event) => {
+      if (event.level === "abs" && !event.skill_id)
+        return selectedSkills
+          .filter((sk) => sk.evaluation_id === event.evaluation_id)
+          .map((sk) => ({ ...event, skill_id: sk.id }));
+      if (!selectedIds.has(event.skill_id)) return [];
+      const skill = selectedSkills.find((sk) => sk.id === event.skill_id);
+      if (skill?.grading_mode === "rubric") {
+        if (event.level === "abs")
+          return skill.criteria.map((criterion) => ({
+            ...event,
+            skill_id: `${skill.id}:${criterion}`,
+          }));
+        return [{ ...event, skill_id: `${skill.id}:${event.criterion}` }];
+      }
+      return [event];
     });
-
+    for (const event of reportEvents) {
+      if (!reportSkills.some((sk) => sk.id === event.skill_id)) {
+        const source = selectedSkills.find((sk) =>
+          event.skill_id?.startsWith(`${sk.id}:`),
+        );
+        if (source)
+          reportSkills.push({
+            ...source,
+            id: event.skill_id,
+            name: `${source.name} — ${event.criterion || "Ancien critère"}`,
+          });
+      }
+    }
+    // Current observations have no session_id: chart them by observation day.
+    const sessions = new Map();
+    for (const event of reportEvents) {
+      const key =
+        event.session_id || formatDateTime(event.created_at).slice(0, 10);
+      event.session_id = key;
+      if (!sessions.has(key))
+        sessions.set(key, { id: key, started_at: event.created_at });
+    }
+    if (request !== reportRequest) return;
     reportData.value = {
-      sessions: sessionsRes.data || [],
-      students: (studentsRes.data || []).sort((a, b) =>
-        a.firstname.localeCompare(b.firstname, "fr-FR"),
+      students: selectedStudents.sort((a, b) =>
+        (a.firstname || "").localeCompare(b.firstname || "", "fr"),
       ),
-      skills: (skillsRes.data || []).sort((a, b) =>
-        a.name.localeCompare(b.name, "fr-FR"),
-      ),
+      skills: reportSkills,
       events: reportEvents,
+      sessions: [...sessions.values()],
     };
-  } catch (err) {
-    console.error("Failed to load report:", err);
+  } catch (error) {
+    if (request === reportRequest) {
+      reportData.value = null;
+      reportError.value = error.message || "Impossible de charger le rapport.";
+    }
+  } finally {
+    if (request === reportRequest) reportLoading.value = false;
   }
 }
 
@@ -188,11 +210,10 @@ onMounted(() => {
 
 // ── Helper functions ────────────────────────────────────
 function formatStudentFullName(student) {
-  if (!student) return "";
-  const parts = [];
-  if (student.firstname) parts.push(student.firstname);
-  if (student.lastname) parts.push(student.lastname);
-  return parts.join(" ") || student.firstname || "";
+  return student
+    ? fullName(student) +
+        (student.custom_name ? ` (${student.custom_name})` : "")
+    : "";
 }
 
 function formatDateTime(iso) {
@@ -222,7 +243,7 @@ function fmtNum(v) {
 
 function getStudentEvents(studentId) {
   if (!reportData.value) return [];
-  return reportData.value.events
+  return filteredEvents.value
     .filter((e) => e.student_id === studentId)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 }
@@ -251,26 +272,54 @@ function studentSkillLast(studentId, skillId) {
 function studentSkillMin(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
-    .map((e) => parseFloat(e.level))
-    .filter((v) => !isNaN(v));
-  return vals.length > 0 ? Math.min(...vals) : null;
+    .map((e) =>
+      numericGrade(
+        e,
+        reportData.value?.skills.find((sk) => sk.id === e.skill_id),
+      ),
+    )
+    .filter((v) => v !== null && Number.isFinite(v));
+  return vals.length > 0
+    ? displayGrade(
+        Math.min(...vals),
+        reportData.value?.skills.find((sk) => sk.id === skillId),
+      )
+    : null;
 }
 
 function studentSkillMax(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
-    .map((e) => parseFloat(e.level))
-    .filter((v) => !isNaN(v));
-  return vals.length > 0 ? Math.max(...vals) : null;
+    .map((e) =>
+      numericGrade(
+        e,
+        reportData.value?.skills.find((sk) => sk.id === e.skill_id),
+      ),
+    )
+    .filter((v) => v !== null && Number.isFinite(v));
+  return vals.length > 0
+    ? displayGrade(
+        Math.max(...vals),
+        reportData.value?.skills.find((sk) => sk.id === skillId),
+      )
+    : null;
 }
 
 function studentSkillAvg(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
-    .map((e) => parseFloat(e.level))
-    .filter((v) => !isNaN(v));
+    .map((e) =>
+      numericGrade(
+        e,
+        reportData.value?.skills.find((sk) => sk.id === e.skill_id),
+      ),
+    )
+    .filter((v) => v !== null && Number.isFinite(v));
   if (vals.length === 0) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
+  return displayGrade(
+    vals.reduce((a, b) => a + b, 0) / vals.length,
+    reportData.value?.skills.find((sk) => sk.id === skillId),
+  );
 }
 
 // ── Chart helpers ──────────────────────────────────────
@@ -292,7 +341,7 @@ const chartColors = [
 const studentChartData = computed(() => {
   if (!reportData.value || !reportSelectedStudentId.value) return null;
   const { sessions, skills } = reportData.value;
-  const events = reportData.value.events.filter(
+  const events = filteredEvents.value.filter(
     (e) => e.student_id === reportSelectedStudentId.value,
   );
   if (sessions.length === 0) return null;
@@ -302,8 +351,13 @@ const studentChartData = computed(() => {
   );
 
   const allLevels = events
-    .map((e) => parseFloat(e.level))
-    .filter((v) => !isNaN(v));
+    .map((e) =>
+      numericGrade(
+        e,
+        reportData.value?.skills.find((sk) => sk.id === e.skill_id),
+      ),
+    )
+    .filter((v) => v !== null && Number.isFinite(v));
   if (allLevels.length === 0) return null;
 
   const yMin = Math.min(...allLevels);
@@ -318,8 +372,13 @@ const studentChartData = computed(() => {
         (e) => e.session_id === session.id && e.skill_id === skill.id,
       );
       const levels = sessionEvents
-        .map((e) => parseFloat(e.level))
-        .filter((v) => !isNaN(v));
+        .map((e) =>
+          numericGrade(
+            e,
+            reportData.value?.skills.find((sk) => sk.id === e.skill_id),
+          ),
+        )
+        .filter((v) => v !== null && Number.isFinite(v));
       if (levels.length === 0) return null;
       return levels.reduce((a, b) => a + b, 0) / levels.length;
     });
@@ -369,62 +428,119 @@ function chartPath(data, yMin, yMax) {
 
 // ── Export report ──────────────────────────────────────
 function reportClassName(student) {
-  const classId = student.class_id ?? studentClassMap.value[student.id];
-  return props.classes.find((cls) => cls.id === classId)?.name || "";
+  const ids = student.class_ids || [student.class_id];
+  return props.classes
+    .filter(
+      (c) =>
+        ids.includes(c.id) &&
+        (!props.checkedClassIds.size || props.checkedClassIds.has(c.id)),
+    )
+    .map((c) => c.name)
+    .join(" / ");
 }
-
+const studentHeaders = [
+  "Groupes",
+  "Fiche",
+  "Numéro",
+  "Prénom",
+  "Nom",
+  "Surnom",
+  "Sexe",
+  "Date de naissance",
+  "Niveau",
+  "Photo (référence)",
+  "ID élève",
+  "Niveaux scolaires",
+  "Années scolaires",
+  "Équipe (ensemble actif)",
+  "Numéros par groupe",
+];
+function studentColumns(s) {
+  return [
+    reportClassName(s),
+    s.record_number,
+    s.student_number,
+    s.firstname,
+    s.lastname,
+    s.custom_name,
+    s.gender,
+    s.birth_date,
+    s.ability_level,
+    s.photo_url,
+    s.id,
+    props.classes
+      .filter((c) => (s.class_ids || [s.class_id]).includes(c.id))
+      .map((c) => c.school_grade)
+      .filter(Boolean)
+      .join(" / "),
+    props.classes
+      .filter((c) => (s.class_ids || [s.class_id]).includes(c.id))
+      .map((c) => c.school_year)
+      .filter(Boolean)
+      .join(" / "),
+    props.teams.find((t) => t.id === props.studentTeamMap[s.id])?.name || "",
+    Object.entries(s.class_numbers || {})
+      .map(
+        ([id, number]) =>
+          `${props.classes.find((c) => c.id === id)?.name || id}: ${number || ""}`,
+      )
+      .join(" / "),
+  ];
+}
 function exportLatestReport() {
-  if (!reportData.value) return;
+  if (!reportData.value || reportLoading.value) return;
   const { students, skills } = reportData.value;
-  const header = ["Classe", "Élève", ...skills.map((skill) => skill.name)];
-  const rows = students.map((student) => [
-    reportClassName(student),
-    formatStudentFullName(student),
-    ...skills.map((skill) => studentSkillLast(student.id, skill.id) ?? ""),
-  ]);
-  downloadReportCsv("sommaire", [header, ...rows]);
+  downloadCsv(
+    "sommaire",
+    csvText([
+      [
+        ...studentHeaders,
+        ...skills.flatMap((sk) => [
+          `${sk.name} — Dernière`,
+          `${sk.name} — Moyenne`,
+        ]),
+      ],
+      ...students.map((s) => [
+        ...studentColumns(s),
+        ...skills.flatMap((sk) => [
+          studentSkillLast(s.id, sk.id) ?? "",
+          studentSkillAvg(s.id, sk.id) ?? "",
+        ]),
+      ]),
+    ]),
+  );
 }
-
 function exportAllReport() {
-  if (!reportData.value) return;
-  const { students, skills, events } = reportData.value;
-  const studentsById = new Map(students.map((student) => [student.id, student]));
-  const skillsById = new Map(skills.map((skill) => [skill.id, skill]));
-  const rows = events
-    .filter((event) => studentsById.has(event.student_id) && skillsById.has(event.skill_id))
-    .slice()
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-    .map((event) => {
-      const student = studentsById.get(event.student_id);
-      return [
-        reportClassName(student),
-        formatStudentFullName(student),
-        skillsById.get(event.skill_id).name,
-        event.level,
-        event.created_at,
-      ];
-    });
-  downloadReportCsv("log", [
-    ["Classe", "Élève", "Compétence", "Évaluation", "Horodatage"],
-    ...rows,
-  ]);
-}
-
-function downloadReportCsv(name, rows) {
-  const esc = (value) => {
-    const text = String(value ?? "");
-    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  };
-  const csv = rows.map((row) => row.map(esc).join(",")).join("\r\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `rapport_${name}_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (!reportData.value || reportLoading.value) return;
+  const students = new Map(reportData.value.students.map((s) => [s.id, s]));
+  const skills = new Map(reportData.value.skills.map((sk) => [sk.id, sk]));
+  downloadCsv(
+    "log",
+    csvText([
+      [
+        ...studentHeaders,
+        "Groupe de la trace",
+        "Habileté",
+        "Cote",
+        "Horodatage",
+        "Observateur",
+        "ID observateur",
+        "Commentaire",
+      ],
+      ...filteredEvents.value
+        .filter((e) => students.has(e.student_id) && skills.has(e.skill_id))
+        .map((e) => [
+          ...studentColumns(students.get(e.student_id)),
+          props.classes.find((c) => c.id === e.class_id)?.name || "",
+          skills.get(e.skill_id).name,
+          e.level,
+          e.created_at,
+          e.observer_name || "Inconnu",
+          e.user_id || "",
+          e.comment || "",
+        ]),
+    ]),
+  );
 }
 
 // Expose methods for parent
@@ -453,7 +569,7 @@ defineExpose({
           </button>
           <button
             class="export-btn"
-            :disabled="!reportData"
+            :disabled="!reportData || reportLoading"
             title="Exporter le sommaire en CSV"
             aria-label="Exporter le sommaire en CSV"
             @click="exportLatestReport"
@@ -463,7 +579,7 @@ defineExpose({
           </button>
           <button
             class="export-btn"
-            :disabled="!reportData"
+            :disabled="!reportData || reportLoading"
             title="Exporter le log avec horodatage en CSV"
             aria-label="Exporter le log avec horodatage en CSV"
             @click="exportAllReport"
@@ -473,6 +589,20 @@ defineExpose({
           </button>
         </aside>
         <div class="report-body">
+          <div class="feature-toolbar">
+            <label
+              >Observateur
+              <select v-model="observerFilter">
+                <option value="">Tous</option>
+                <option v-for="[id, name] in observers" :key="id" :value="id">
+                  {{ name }}
+                </option>
+              </select></label
+            >
+          </div>
+          <div v-if="reportError" role="alert">
+            {{ reportError }} <button @click="loadReportData">Réessayer</button>
+          </div>
           <div v-if="reportLoading" class="report-loading">Chargement…</div>
           <div v-else-if="!reportData" class="report-empty">Aucune donnée.</div>
           <template v-else>
@@ -493,6 +623,21 @@ defineExpose({
                   <span>Retour</span>
                 </button>
 
+                <details class="observation-log">
+                  <summary>Traces et observateurs</summary>
+                  <p
+                    v-for="event in getStudentEvents(reportSelectedStudentId)"
+                    :key="event.id + ':' + event.skill_id"
+                  >
+                    {{ formatDateTime(event.created_at) }} ·
+                    {{
+                      reportData.skills.find((sk) => sk.id === event.skill_id)
+                        ?.name
+                    }}
+                    · {{ event.level }} · {{ event.observer_name || "Inconnu" }}
+                    <span v-if="event.comment">— {{ event.comment }}</span>
+                  </p>
+                </details>
                 <!-- Student name header -->
                 <div class="report-student-name">
                   {{ formatStudentFullName(reportSelectedStudent) }}
@@ -1036,7 +1181,7 @@ defineExpose({
   cursor: pointer;
 }
 
-.report-table .report-td-student--clickable:hover {
+.report-table .report-td-student--clickable:focus-visible {
   background: rgba(38, 70, 83, 0.08);
 }
 
@@ -1204,7 +1349,7 @@ defineExpose({
   margin-bottom: 1rem;
 }
 
-.report-back-btn:hover {
+.report-back-btn:focus-visible {
   background: rgba(38, 70, 83, 0.15);
 }
 

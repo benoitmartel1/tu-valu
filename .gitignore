@@ -40,3 +40,7 @@ AUTHENTICATION_IMPLEMENTATION.md
 MAGIC_LINK_TROUBLESHOOTING.md
 OAUTH_SETUP_GUIDE.md
 QUICK_START_AUTH.md
+
+# Local validation artifacts
+test-results/
+supabase/.temp/

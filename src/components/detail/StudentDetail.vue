@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch } from "vue";
+import StudentFields from "./StudentFields.vue";
 import { Trash2 } from "@lucide/vue";
 import { supabase, getStudentPhotoPresignedUrl } from "../../supabase";
 
@@ -78,7 +79,7 @@ watch(
       // Also update the cached allStudents with fresh data
       const idx = props.allStudents.findIndex((s) => s.id === id);
       if (idx !== -1) {
-        props.allStudents[idx] = { ...data };
+        props.allStudents[idx] = { ...props.allStudents[idx], ...data };
       }
     }
   },
@@ -98,8 +99,8 @@ async function saveStudentDetail() {
   const { error } = await supabase
     .from("tu_students")
     .update({
-      firstname: firstname.trim(),
-      lastname: lastname.trim(),
+      firstname: firstname?.trim() || "",
+      lastname: lastname?.trim() || "",
       gender: gender || null,
       custom_name: studentDetailEditing.value.custom_name?.trim() || null,
       name_display_prefs: studentDetailEditing.value.name_display_prefs || {
@@ -147,20 +148,15 @@ function toggleNamePref(prefKey) {
 
 async function deleteStudent() {
   if (!props.studentId) return;
-  if (!confirm("Supprimer cet élève ?")) return;
+  if (
+    !confirm(
+      "Supprimer définitivement cette fiche, ses appartenances à tous les groupes et ses traces ? Pour un seul groupe, utilisez « Retirer du groupe ».",
+    )
+  )
+    return;
 
   try {
-    const { error: eventsError } = await supabase
-      .from("tu_session_events")
-      .delete()
-      .eq("student_id", props.studentId);
-
-    if (eventsError) {
-      console.error("Failed to delete session events:", eventsError);
-      alert("Erreur lors de la suppression des événements de session");
-      return;
-    }
-
+    // Existing database cascades remove memberships and events in one transaction.
     const { error } = await supabase
       .from("tu_students")
       .delete()
@@ -227,6 +223,7 @@ async function deleteStudent() {
 
       <!-- Right column: fields -->
       <div v-if="studentDetailEditing" class="student-detail-fields">
+        <StudentFields :id="studentId" @changed="emit('data-changed')" />
         <div class="detail-section">
           <input
             v-model="studentDetailEditing.firstname"
@@ -438,7 +435,7 @@ async function deleteStudent() {
   display: block;
   font-size: 1.125rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-light);
   margin-bottom: 0.5rem;
 }
 
@@ -531,7 +528,7 @@ async function deleteStudent() {
   user-select: none;
 }
 
-.checkbox-option:hover {
+.checkbox-option:focus-visible {
   opacity: 1;
 }
 

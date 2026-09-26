@@ -1,6 +1,10 @@
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import { ChevronUp, Upload, Plus, Check, PenIcon } from "@lucide/vue";
+import StudentAvatar from "../StudentAvatar.vue";
+import { preferences } from "../../stores/preferences";
+import { belongsTo, fullName } from "../../lib/domain";
+import { mutate } from "../../lib/data";
 import { supabase } from "../../supabase";
 import ClassDetail from "../detail/ClassDetail.vue";
 import StudentDetail from "../detail/StudentDetail.vue";
@@ -17,6 +21,8 @@ const props = defineProps({
 
 const emit = defineEmits([
   "close",
+  "deselect-all",
+  "student-check",
   "select-class",
   "data-changed",
   "class-check",
@@ -26,6 +32,44 @@ const emit = defineEmits([
 const classDetailId = ref(null);
 const studentDetailId = ref(null);
 const studentImportOpen = ref(false);
+const search = ref(""),
+  grade = ref(""),
+  bankSearch = ref(""),
+  bankOpen = ref(false),
+  selectionError = ref("");
+const filteredClasses = computed(() =>
+  props.classes.filter(
+    (c) =>
+      (!grade.value || c.school_grade === grade.value) &&
+      c.name
+        .toLocaleLowerCase("fr")
+        .includes(search.value.toLocaleLowerCase("fr")),
+  ),
+);
+const grades = computed(() =>
+  [...new Set(props.classes.map((c) => c.school_grade).filter(Boolean))].sort(),
+);
+const bankStudents = computed(() =>
+  props.allStudents.filter(
+    (s) =>
+      !belongsTo(s, props.selectedClassId) &&
+      (fullName(s) + " " + (s.record_number || ""))
+        .toLocaleLowerCase("fr")
+        .includes(bankSearch.value.toLocaleLowerCase("fr")),
+  ),
+);
+async function attachStudent(student) {
+  try {
+    await mutate(
+      supabase
+        .from("tu_student_classes")
+        .insert({ student_id: student.id, class_id: props.selectedClassId }),
+    );
+    emit("data-changed");
+  } catch (e) {
+    selectionError.value = e.message;
+  }
+}
 
 // ── Helper functions ────────────────────────────────────
 function getClassName(classId) {
@@ -36,7 +80,7 @@ function getClassName(classId) {
 function getCurrentClassStudents() {
   if (!props.selectedClassId) return [];
   return props.allStudents
-    .filter((s) => s.class_id === props.selectedClassId)
+    .filter((s) => belongsTo(s, props.selectedClassId))
     .sort((a, b) =>
       (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
     );
@@ -178,8 +222,29 @@ function onStudentImported() {
                 <Plus :size="20" :stroke-width="3" />
               </button>
             </div>
+            <div class="feature-fields">
+              <input
+                v-model="search"
+                placeholder="Rechercher un groupe"
+                aria-label="Rechercher un groupe"
+              />
+              <select v-model="grade" aria-label="Niveau scolaire">
+                <option value="">Tous les niveaux</option>
+                <option v-for="g in grades" :key="g" :value="g">{{ g }}</option>
+              </select>
+              <button @click="emit('deselect-all')">Tout désélectionner</button>
+              <small
+                >Sélection :
+                {{
+                  classes
+                    .filter((c) => checkedClassIds.has(c.id))
+                    .map((c) => c.name)
+                    .join(", ") || "Aucun groupe"
+                }}</small
+              >
+            </div>
             <div class="class-list">
-              <div v-for="cls in classes" :key="cls.id">
+              <div v-for="cls in filteredClasses" :key="cls.id">
                 <button
                   class="picker-item class-item"
                   :class="{
@@ -223,10 +288,13 @@ function onStudentImported() {
                 class="class-detail-container"
               >
                 <ClassDetail
+                  :key="classDetailId"
+                  @data-changed="emit('data-changed')"
                   :class-id="classDetailId === 'new' ? null : classDetailId"
                   :all-students="allStudents"
                   @close="classDetailId = null"
                   @saved="onClassDetailSaved"
+                  @duplicated="classDetailId = $event"
                   @deleted="onClassDetailDeleted"
                 />
               </div>
@@ -249,7 +317,43 @@ function onStudentImported() {
                         <Plus :size="20" :stroke-width="3" />
                       </button>
                     </div>
-                    <div v-if="selectedClassId" class="student-list">
+                    <div v-if="selectedClassId" class="feature-toolbar">
+                      <button
+                        @click="preferences.gallery = !preferences.gallery"
+                      >
+                        {{
+                          preferences.gallery ? "Vue liste" : "Vue galerie"
+                        }}</button
+                      ><button @click="bankOpen = !bankOpen">
+                        Ajouter depuis la banque
+                      </button>
+                    </div>
+                    <div
+                      v-if="bankOpen && selectedClassId"
+                      class="feature-fields"
+                    >
+                      <input
+                        v-model="bankSearch"
+                        placeholder="Nom ou n° de fiche"
+                      />
+                      <p v-if="selectionError" role="alert">
+                        {{ selectionError }}
+                      </p>
+                      <button
+                        v-for="student in bankStudents"
+                        :key="student.id"
+                        @click="attachStudent(student)"
+                      >
+                        {{ fullName(student) }} ·
+                        {{ student.record_number || "Sans n° de fiche" }} —
+                        Ajouter
+                      </button>
+                    </div>
+                    <div
+                      v-if="selectedClassId"
+                      class="student-list"
+                      :class="{ 'student-gallery': preferences.gallery }"
+                    >
                       <div
                         v-for="student in getCurrentClassStudents()"
                         :key="student.id"
@@ -263,6 +367,10 @@ function onStudentImported() {
                           @click="studentDetailId = student.id"
                         >
                           <!-- <span>{{ student.student_number }}</span> -->
+                          <StudentAvatar
+                            v-if="preferences.gallery"
+                            :student="student"
+                          />
                           <span
                             >{{ student.firstname }}
                             {{ student.lastname }}</span
@@ -339,7 +447,7 @@ function onStudentImported() {
 <style scoped>
 /* Modal background */
 .class-modal--bg {
-  background: #457b9d;
+  background: var(--student-bg);
 }
 
 /* Modal-specific styles */
@@ -436,5 +544,19 @@ function onStudentImported() {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateX(-20px);
+}
+
+.student-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.7rem;
+}
+.student-gallery .student-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 130px;
+  border-radius: 12px;
+  padding: 0.7rem;
 }
 </style>

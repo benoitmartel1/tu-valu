@@ -2,6 +2,11 @@
 import { ref, computed, onMounted, nextTick, watch } from "vue";
 import {
   Users,
+  Cake,
+  Star,
+  EyeOff,
+  Sun,
+  Moon,
   X,
   Plus,
   Trash2,
@@ -24,6 +29,19 @@ import {
   PenIcon,
   Component,
 } from "@lucide/vue";
+import { preferences } from "../stores/preferences";
+import { allRows } from "../lib/data";
+import {
+  studentName,
+  belongsTo,
+  observationClass,
+  isSkillComplete,
+  isStudentComplete,
+  roundBrightness,
+  gradeSnapshot,
+} from "../lib/domain";
+import StudentAvatar from "./StudentAvatar.vue";
+import Birthdays from "./popup/Birthdays.vue";
 import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
 import { signOut, userEmail, userId } from "../stores/auth";
@@ -55,12 +73,57 @@ import TeamModal from "./modal/TeamModal.vue";
 import ActionConfirmation from "./popup/ActionConfirmation.vue";
 
 const actionConfirmation = ref(null);
+const showBirthdays = ref(false);
+const hiddenStudents = ref(new Set());
+const absentStudents = ref(new Set());
+const priorities = ref({});
+const saveError = ref("");
+const savingEvent = ref(false);
+const activeTeamIds = ref([]);
+const teamBatchId = ref(null);
+const allTeams = ref([]);
+const teamBatches = computed(() => [
+  ...new Set(allTeams.value.map((t) => t.batch_id || "legacy")),
+]);
+function deselectAll() {
+  checkedClassIds.value = new Set();
+  checkedStudentIds.value = new Set();
+  excludedStudentIds.value = new Set();
+  hiddenStudents.value = new Set();
+  absentStudents.value = new Set();
+}
+const rosterStudents = computed(() =>
+  allStudents.value.filter(
+    (s) =>
+      (checkedStudentIds.value.has(s.id) ||
+        [...checkedClassIds.value].some((id) => belongsTo(s, id))) &&
+      !excludedStudentIds.value.has(s.id),
+  ),
+);
+const cohortStudents = computed(() =>
+  rosterStudents.value.filter((s) => !absentStudents.value.has(s.id)),
+);
+const visibleStudents = computed(() =>
+  sortedStudents.value.filter(
+    (s) =>
+      !hiddenStudents.value.has(s.id) &&
+      !absentStudents.value.has(s.id) &&
+      !isStudentComplete(s.id, currentSkills.value, counts.value),
+  ),
+);
+function restoreStudents() {
+  hiddenStudents.value = new Set();
+}
+let countRequest = 0;
 
 // ── Setup state ───────────────────────────────────────
 const classes = ref([]);
 const evaluations = ref([]);
 const selectedClassId = ref(null);
-const loading = ref(false);
+const dataLoading = ref(false);
+const countLoading = ref(false);
+const loading = computed(() => dataLoading.value || countLoading.value);
+let dataRequest = 0;
 
 // ── Picker state ──────────────────────────────────────
 const classModalTab = ref("select"); // 'select' | 'edit'
@@ -188,7 +251,9 @@ const currentStudents = computed(() => {
   // Filter allStudents based on checked classes/students, exclusions, gender, and team
   return allStudents.value.filter((s) => {
     // Check if student is in a checked class
-    const isInCheckedClass = checkedClassIds.value.has(s.class_id);
+    const isInCheckedClass = [...checkedClassIds.value].some((id) =>
+      belongsTo(s, id),
+    );
     // Check if student is individually checked
     const isIndividuallyChecked = checkedStudentIds.value.has(s.id);
     // Check if student is excluded
@@ -204,8 +269,8 @@ const currentStudents = computed(() => {
 
     // Apply team filter if teams are active
     let matchesTeam = true;
-    if (teamsActive.value && activeTeamId.value) {
-      matchesTeam = studentTeamMap.value[s.id] === activeTeamId.value;
+    if (teamsActive.value && activeTeamIds.value.length) {
+      matchesTeam = activeTeamIds.value.includes(studentTeamMap.value[s.id]);
     }
 
     return (
@@ -220,7 +285,11 @@ const currentStudents = computed(() => {
 // Current evaluations/skills to display
 const currentSkills = computed(() => {
   // Simply return all skills that are in checkedSkillIds
-  return skills.value.filter((sk) => checkedSkillIds.value.has(sk.id));
+  return skills.value.filter(
+    (sk) =>
+      checkedSkillIds.value.has(sk.id) &&
+      !evaluations.value.find((ev) => ev.id === sk.evaluation_id)?.archived_at,
+  );
 });
 
 // ── Logout handler ────────────────────────────────────
@@ -232,95 +301,108 @@ async function handleLogout() {
 
 // ── Load all data on mount ────────────────────────────
 async function loadAllData() {
-  loading.value = true;
-
-  // Load classes
-  const { data: classData } = await supabase
-    .from("tu_classes")
-    .select("*")
-    .order("name");
-  classes.value = classData || [];
-  console.log("Loaded classes:", classes.value.length);
-
-  // Load evaluations
-  const { data: evalData } = await supabase
-    .from("tu_evaluations")
-    .select("*")
-    .order("title");
-  evaluations.value = evalData || [];
-
-  // Load ALL students at once (single source of truth)
-  // Don't order in database - we'll sort in JavaScript with proper French locale
-  const { data: studentData } = await supabase
-    .from("tu_students")
-    .select(
-      "id, firstname, lastname, gender, birth_date, class_id, name_display_prefs, photo_url, custom_name, student_number",
-    );
-  allStudents.value = studentData || [];
-
-  // Load skills
-  const { data: skillData } = await supabase
-    .from("tu_skills")
-    .select("id, name, scale, icon, evaluation_id")
-    .order("name");
-  skills.value = skillData || [];
-
-  // Load teams
-  await loadTeams();
-
-  loading.value = false;
+  const request = ++dataRequest;
+  dataLoading.value = true;
+  saveError.value = "";
+  try {
+    const [classData, evalData, studentData, memberships, skillData] =
+      await Promise.all([
+        allRows(() =>
+          supabase.from("tu_classes").select("*").order("name").order("id"),
+        ),
+        allRows(() =>
+          supabase
+            .from("tu_evaluations")
+            .select("*")
+            .order("sort_order")
+            .order("id"),
+        ),
+        allRows(() => supabase.from("tu_students").select("*").order("id")),
+        allRows(() =>
+          supabase
+            .from("tu_student_classes")
+            .select("*")
+            .order("student_id")
+            .order("class_id"),
+        ),
+        allRows(() =>
+          supabase.from("tu_skills").select("*").order("name").order("id"),
+        ),
+      ]);
+    if (request !== dataRequest) return;
+    classes.value = classData;
+    evaluations.value = evalData;
+    skills.value = skillData;
+    allStudents.value = studentData.map((s) => ({
+      ...s,
+      class_ids: memberships
+        .filter((m) => m.student_id === s.id)
+        .map((m) => m.class_id),
+      class_numbers: Object.fromEntries(
+        memberships
+          .filter((m) => m.student_id === s.id)
+          .map((m) => [m.class_id, m.student_number]),
+      ),
+    }));
+    await loadTeams();
+    if (hasEvalSelection.value) await startSession();
+  } catch (error) {
+    if (request === dataRequest) saveError.value = error.message;
+  } finally {
+    if (request === dataRequest) dataLoading.value = false;
+  }
 }
 
 // ── Teams functions ───────────────────────────────────
 async function loadTeams() {
-  // Load all teams ordered by creation date (newest first)
-  const { data: teamsData } = await supabase
-    .from("tu_teams")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (!teamsData || teamsData.length === 0) {
-    teams.value = [];
-    studentTeamMap.value = {};
-    return;
-  }
-
-  // Get the most recent team creation timestamp
-  const latestTimestamp = teamsData[0].created_at;
-
-  // Filter to only include teams created at the same time (same batch)
-  // Teams created together will have very similar timestamps (within 1 second)
-  const latestTeams = teamsData.filter((team) => {
-    const teamTime = new Date(team.created_at).getTime();
-    const latestTime = new Date(latestTimestamp).getTime();
-    // Consider teams created within 2 seconds of each other as part of the same batch
-    return Math.abs(teamTime - latestTime) < 2000;
-  });
-
-  teams.value = latestTeams;
-
-  // Load student-team relationships for latest teams only
-  const latestTeamIds = latestTeams.map((t) => t.id);
-  const { data: relationships } = await supabase
-    .from("tu_student_teams")
-    .select("student_id, team_id")
-    .in("team_id", latestTeamIds);
-
-  // Build student to team map
-  const map = {};
-  if (relationships) {
-    for (const rel of relationships) {
-      map[rel.student_id] = rel.team_id;
-    }
-  }
-  studentTeamMap.value = map;
+  allTeams.value = await allRows(() =>
+    supabase
+      .from("tu_teams")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
+  if (
+    !teamBatchId.value ||
+    !allTeams.value.some((t) => (t.batch_id || "legacy") === teamBatchId.value)
+  )
+    teamBatchId.value = allTeams.value[0]?.batch_id || "legacy";
+  teams.value = allTeams.value.filter(
+    (t) => (t.batch_id || "legacy") === teamBatchId.value,
+  );
+  const relationships = teams.value.length
+    ? await allRows(() =>
+        supabase
+          .from("tu_student_teams")
+          .select("*")
+          .in(
+            "team_id",
+            teams.value.map((t) => t.id),
+          )
+          .order("student_id")
+          .order("team_id"),
+      )
+    : [];
+  studentTeamMap.value = Object.fromEntries(
+    relationships.map((r) => [r.student_id, r.team_id]),
+  );
+  activeTeamIds.value = activeTeamIds.value.filter((id) =>
+    teams.value.some((t) => t.id === id),
+  );
 }
+watch(teamBatchId, (value, previous) => {
+  if (value && previous)
+    loadTeams().catch((e) => {
+      saveError.value = e.message;
+    });
+});
 
 function openTeamModal() {
   toggleModal("teams");
 }
 
 function onTeamsCreated(newTeams) {
+  teamBatchId.value = null;
   activeModal.value = null;
   teamsActive.value = true;
   loadTeams(); // Reload teams from database
@@ -383,31 +465,7 @@ function selectEvalInModal(evalId) {
 
 // Helper functions for template
 function formatStudentName(student) {
-  if (!student) return "";
-
-  // Use student's preferences if available, otherwise use defaults
-  const prefs = student.name_display_prefs || {
-    showFirstname: true,
-    showInitial: false,
-    showLastname: false,
-    showCustomName: false,
-  };
-
-  const parts = [];
-  if (prefs.showCustomName) {
-    parts.push(student.custom_name);
-  }
-  if (prefs.showFirstname) {
-    parts.push(student.firstname);
-  }
-  if (prefs.showInitial && student.lastname) {
-    parts.push(student.lastname.charAt(0).toUpperCase() + ".");
-  }
-  if (prefs.showLastname && student.lastname) {
-    parts.push(student.lastname);
-  }
-
-  return parts.join(" ") || student.firstname;
+  return studentName(student, preferences);
 }
 
 function getInitials(firstname, lastname) {
@@ -415,11 +473,19 @@ function getInitials(firstname, lastname) {
 }
 
 async function startSession() {
-  if (!hasStudentSelection.value) return;
-  loading.value = true;
+  if (!hasStudentSelection.value) {
+    ++countRequest;
+    countLoading.value = false;
+    counts.value = {};
+    usedLevels.value = {};
+    levelCounts.value = {};
+    return;
+  }
+  countLoading.value = true;
 
   // Use currentStudents computed array (already filtered and sorted)
-  const stu = [...currentStudents.value];
+  const request = ++countRequest;
+  const stu = [...rosterStudents.value];
 
   students.value = stu;
   // Don't modify skills.value - it's the master array from the database
@@ -430,11 +496,27 @@ async function startSession() {
   const skillIds = currentSkills.value.map((s) => s.id);
 
   if (studentIds.length > 0 && skillIds.length > 0) {
-    const { data: eventsRes } = await supabase
-      .from("tu_session_events")
-      .select("*")
-      .in("student_id", studentIds)
-      .in("skill_id", skillIds);
+    let eventsRes = [];
+    try {
+      for (let i = 0; i < studentIds.length; i += 100)
+        eventsRes.push(
+          ...(await allRows(() =>
+            supabase
+              .from("tu_session_events")
+              .select("*")
+              .in("student_id", studentIds.slice(i, i + 100))
+              .in("skill_id", skillIds)
+              .order("id"),
+          )),
+        );
+    } catch (error) {
+      if (request === countRequest) {
+        saveError.value = error.message;
+        countLoading.value = false;
+      }
+      return;
+    }
+    if (request !== countRequest) return;
 
     const c = {};
     const ul = {};
@@ -470,28 +552,38 @@ async function startSession() {
     levelCounts.value = {};
   }
 
-  loading.value = false;
+  countLoading.value = false;
 }
 
 // ── Sorted students ───────────────────────────────────
 function compareStudentNames(a, b, field = "firstname") {
-  const firstnames = (a.firstname || "").localeCompare(b.firstname || "", "fr-FR");
+  const firstnames = (a.firstname || "").localeCompare(
+    b.firstname || "",
+    "fr-FR",
+  );
   const lastnames = (a.lastname || "").localeCompare(b.lastname || "", "fr-FR");
-  return field === "lastname" ? lastnames || firstnames : firstnames || lastnames;
+  return field === "lastname"
+    ? lastnames || firstnames
+    : firstnames || lastnames;
 }
 
 const sortedStudents = computed(() => {
   const students = [...currentStudents.value];
 
-  if (sortBy.value === "team" && teamsActive.value) {
+  if (sortBy.value === "ability") {
+    students.sort(
+      (a, b) =>
+        (b.ability_level ?? -1) - (a.ability_level ?? -1) ||
+        compareStudentNames(a, b),
+    );
+  } else if (sortBy.value === "team" && teamsActive.value) {
     // Sort by team first, then by firstname within each team
     students.sort((a, b) => {
       const teamA = studentTeamMap.value[a.id];
       const teamB = studentTeamMap.value[b.id];
 
       // Students without teams go to the end
-      if (!teamA && !teamB)
-        return compareStudentNames(a, b);
+      if (!teamA && !teamB) return compareStudentNames(a, b);
       if (!teamA) return 1;
       if (!teamB) return -1;
 
@@ -563,15 +655,13 @@ function hasUsedLevel(studentId, skillId, level) {
 
 // ── Opacity helper ─────────────────────────────────────
 const studentOpacityMap = computed(() => {
-  void counts.value;
-  void currentStudents.value;
-  const map = {};
-  const max = maxSessionCount.value;
-  for (const s of currentStudents.value) {
-    const count = studentTotalCount(s.id);
-    map[s.id] = max === 0 ? 1 : 1 - (count / max) * 0.8;
-  }
-  return map;
+  const cohort = cohortStudents.value.map((s) => studentTotalCount(s.id));
+  return Object.fromEntries(
+    cohortStudents.value.map((s) => [
+      s.id,
+      roundBrightness(studentTotalCount(s.id), cohort),
+    ]),
+  );
 });
 
 function studentOpacity(studentId) {
@@ -613,211 +703,135 @@ function onDragCancel() {
   hoveredAbsent.value = false;
 }
 
-async function markStudentAbsent(studentId, classId) {
-  const activeSkills = currentSkills.value;
-  if (!classId || activeSkills.length === 0) return;
-
-  const { data: existingEvents, error: existingError } = await supabase
-    .from("tu_session_events")
-    .select("id, skill_id")
-    .eq("student_id", studentId)
-    .eq("level", "abs")
-    .in(
-      "skill_id",
-      activeSkills.map((skill) => skill.id),
-    );
-
-  if (existingError) {
-    console.error("Failed to check absent event:", existingError);
-    return;
-  }
-
-  const existingSkillIds = new Set(
-    (existingEvents || []).map((event) => event.skill_id),
+async function markStudentAbsent(student) {
+  const classId = observationClass(
+    student,
+    checkedClassIds.value,
+    selectedClassId.value,
   );
-  const absentEvents = activeSkills
-    .filter((skill) => !existingSkillIds.has(skill.id))
-    .map((skill) => ({
+  const day = new Date();
+  day.setHours(0, 0, 0, 0);
+  const { data: existing, error } = await supabase
+    .from("tu_session_events")
+    .select("skill_id")
+    .eq("student_id", student.id)
+    .eq("level", "abs")
+    .gte("created_at", day.toISOString());
+  if (error) throw error;
+  const ids = new Set((existing || []).map((e) => e.skill_id));
+  const events = currentSkills.value
+    .filter((sk) => !ids.has(sk.id))
+    .map((sk) => ({
       class_id: classId,
-      evaluation_id: skill.evaluation_id,
-      student_id: studentId,
-      skill_id: skill.id,
+      evaluation_id: sk.evaluation_id,
+      student_id: student.id,
+      skill_id: sk.id,
       level: "abs",
-      team_id: null,
       user_id: userId.value,
     }));
-
-  if (absentEvents.length === 0) return;
-
-  const { error } = await supabase
-    .from("tu_session_events")
-    .insert(absentEvents);
-  if (error) {
-    console.error("Failed to save absent event:", error);
+  if (!currentSkills.value.length)
+    throw new Error("Sélectionnez une habileté pour consigner une absence.");
+  let eventIds = [];
+  if (events.length) {
+    const { data, error: insertError } = await supabase
+      .from("tu_session_events")
+      .insert(events)
+      .select("id");
+    if (insertError) throw insertError;
+    eventIds = data.map((e) => e.id);
   }
+  actionHistory.value.push({ absent: true, studentId: student.id, eventIds });
+  absentStudents.value = new Set([...absentStudents.value, student.id]);
 }
-
-function onDragEnd() {
-  document.body.style.touchAction = "";
-  document.body.style.userSelect = "";
-  document.removeEventListener("pointermove", onDragMove);
-  document.removeEventListener("pointerup", onDragEnd);
-  document.removeEventListener("pointercancel", onDragCancel);
-
-  if (!drag.value) return;
-
-  const studentId = drag.value.student.id;
-
-  // Check if dropped on the absent zone
-  const dropEl = document.elementFromPoint(
-    drag.value.currentX,
-    drag.value.currentY,
-  );
-  if (dropEl?.closest("[data-absent-zone]")) {
-    const absentStudent = currentStudents.value.find((s) => s.id === studentId);
-    if (absentStudent) {
-      // Find which class this student belongs to
-      let foundClass = null;
-      for (const cls of classes.value) {
-        const studentsInClass = allStudents.value.filter(
-          (s) => s.class_id === cls.id,
-        );
-        if (studentsInClass.some((s) => s.id === studentId)) {
-          foundClass = cls;
-          break;
-        }
-      }
-      if (foundClass && checkedClassIds.value.has(foundClass.id)) {
-        // Student is from a checked class → exclude them
-        const newExcluded = new Set(excludedStudentIds.value);
-        newExcluded.add(studentId);
-        excludedStudentIds.value = newExcluded;
-      } else {
-        // Individually checked student → uncheck them
-        const wasChecked = checkedStudentIds.value.has(studentId);
-        if (wasChecked) {
-          toggleChecked(studentId, "student");
-        }
-      }
-      markStudentAbsent(studentId, foundClass?.id || absentStudent.class_id);
-      if (hasEvalSelection.value) startSession();
-    }
-    drag.value = null;
-    hoveredSkillId.value = null;
-    hoveredLevel.value = null;
+async function onDragEnd() {
+  const active = drag.value;
+  const target = active
+    ? document.elementFromPoint(active.currentX, active.currentY)
+    : null;
+  const skillId = hoveredSkillId.value,
+    level = hoveredLevel.value;
+  onDragCancel();
+  if (!active || savingEvent.value) return;
+  const student = active.student;
+  if (target?.closest("[data-priority-zone]")) {
+    priorities.value = {
+      ...priorities.value,
+      [student.id]: Math.min(3, (priorities.value[student.id] || 0) + 1),
+    };
     return;
   }
-
-  const skillId = hoveredSkillId.value;
-
-  if (skillId && hoveredLevel.value) {
-    const level = hoveredLevel.value;
-
-    // update local counts (all events)
-    const newCounts = { ...counts.value };
-    if (!newCounts[studentId]) newCounts[studentId] = {};
-    newCounts[studentId] = {
-      ...newCounts[studentId],
-      [skillId]: (newCounts[studentId][skillId] || 0) + 1,
+  if (target?.closest("[data-hide-zone]")) {
+    hiddenStudents.value = new Set([...hiddenStudents.value, student.id]);
+    return;
+  }
+  savingEvent.value = true;
+  saveError.value = "";
+  try {
+    if (target?.closest("[data-absent-zone]")) {
+      await markStudentAbsent(student);
+      return;
+    }
+    const skill = currentSkills.value.find((sk) => sk.id === skillId);
+    if (!skill || level == null) return;
+    if (isSkillComplete(student.id, skill, counts.value))
+      throw new Error(
+        "Le nombre maximal de traces est atteint pour cette habileté.",
+      );
+    let comment = null;
+    if (skill.grading_mode === "category") {
+      comment = window.prompt("Commentaire (facultatif)", "");
+      if (comment === null) return;
+    }
+    const { data, error } = await supabase
+      .from("tu_session_events")
+      .insert({
+        class_id: observationClass(
+          student,
+          checkedClassIds.value,
+          selectedClassId.value,
+        ),
+        evaluation_id: skill.evaluation_id,
+        student_id: student.id,
+        skill_id: skill.id,
+        level: String(level),
+        user_id: userId.value,
+        grading_snapshot: gradeSnapshot(skill),
+        comment,
+        criterion:
+          target?.closest("[data-criterion]")?.getAttribute("data-criterion") ||
+          null,
+        team_id: teamsActive.value
+          ? studentTeamMap.value[student.id] || null
+          : null,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    const confirmationDetails = {
+      studentName: formatStudentName(student),
+      skillName: skill.name,
+      level,
     };
-    counts.value = newCounts;
-
-    // track used levels
-    const newUsed = { ...usedLevels.value };
-    if (!newUsed[studentId]) newUsed[studentId] = {};
-    if (!newUsed[studentId][skillId]) newUsed[studentId][skillId] = {};
-    newUsed[studentId][skillId] = {
-      ...newUsed[studentId][skillId],
-      [level]: true,
-    };
-    usedLevels.value = newUsed;
-
-    // track per-level count
-    const newLC = { ...levelCounts.value };
-    if (!newLC[studentId]) newLC[studentId] = {};
-    if (!newLC[studentId][skillId]) newLC[studentId][skillId] = {};
-    newLC[studentId][skillId] = {
-      ...newLC[studentId][skillId],
-      [level]: (newLC[studentId][skillId][level] || 0) + 1,
-    };
-    levelCounts.value = newLC;
-
-    // flash the drop zone
-    dropFlash.value = skillId;
+    actionHistory.value.push({
+      studentId: student.id,
+      eventId: data.id,
+      confirmationDetails,
+    });
+    actionConfirmation.value?.show(confirmationDetails);
+    dropFlash.value = skill.id;
     setTimeout(() => {
       dropFlash.value = null;
     }, 400);
-
-    // insert event
-    const primaryClassId =
-      [...checkedClassIds.value][0] || selectedClassId.value;
-    const skill = skills.value.find((s) => s.id === skillId);
-    const confirmationDetails = {
-      studentName: formatStudentName(drag.value.student),
-      skillName: skill?.name || "Habileté",
-      level,
-    };
-    const eventPayload = {
-      class_id: primaryClassId,
-      evaluation_id: skill?.evaluation_id || [...checkedEvalIds.value][0],
-      student_id: studentId,
-      skill_id: skillId,
-      level: level,
-      team_id: teamsActive.value
-        ? studentTeamMap.value[studentId] || null
-        : null,
-      user_id: userId.value,
-    };
-    supabase
-      .from("tu_session_events")
-      .insert(eventPayload)
-      .select("id")
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Failed to save event:", error);
-          return;
-        }
-        // Store in undo history
-        actionHistory.value.push({
-          studentId,
-          skillId,
-          level,
-          eventId: data.id,
-          confirmationDetails,
-        });
-        actionConfirmation.value?.show(confirmationDetails);
-        // Refresh report data if the report modal is open
-        if (activeModal.value === "report" && reportModalRef.value) {
-          reportModalRef.value.loadReportData();
-        }
-      })
-      .catch((err) => console.error("Failed to save event:", err));
-
-    // flash student bubble
-    const bubbleEl = document.querySelector(
-      `.student-wrapper[data-student-id="${studentId}"] .student-bubble`,
-    );
-    if (bubbleEl) {
-      bubbleEl.style.transition = "none";
-      bubbleEl.style.boxShadow = "0 0 0 4px rgba(232, 168, 32, 0.9)";
-      bubbleEl.style.borderColor = "#e8a820";
-      setTimeout(() => {
-        bubbleEl.style.transition = "";
-        bubbleEl.style.boxShadow = "";
-        bubbleEl.style.borderColor = "";
-      }, 350);
-    }
+    await startSession();
+  } catch (error) {
+    saveError.value = error.message || "Impossible d’enregistrer la trace.";
+  } finally {
+    savingEvent.value = false;
   }
-
-  drag.value = null;
-  hoveredSkillId.value = null;
-  hoveredLevel.value = null;
-  hoveredAbsent.value = false;
 }
 
 function onDragStart(e, student) {
-  if (drag.value) return; // only one drag at a time
+  if (drag.value || savingEvent.value || loading.value) return; // one confirmed action at a time
   e.preventDefault();
 
   const rect = e.currentTarget.getBoundingClientRect();
@@ -842,80 +856,33 @@ function onDragStart(e, student) {
 
 // ── Undo last action ────────────────────────────────────
 async function undoLastAction() {
-  const action = actionHistory.value.pop();
+  if (savingEvent.value) return;
+  const action = actionHistory.value.at(-1);
   if (!action) return;
-
-  const { studentId, skillId, level, eventId } = action;
-
-  // Revert counts (all events)
-  const newCounts = { ...counts.value };
-  if (newCounts[studentId]) {
-    newCounts[studentId] = { ...newCounts[studentId] };
-    if (newCounts[studentId][skillId] != null) {
-      newCounts[studentId][skillId] -= 1;
-      if (newCounts[studentId][skillId] <= 0) {
-        delete newCounts[studentId][skillId];
-      }
+  savingEvent.value = true;
+  try {
+    const ids = action.eventIds || [action.eventId];
+    if (ids.length) {
+      const { error } = await supabase
+        .from("tu_session_events")
+        .delete()
+        .in("id", ids);
+      if (error) throw error;
     }
-    if (Object.keys(newCounts[studentId]).length === 0) {
-      delete newCounts[studentId];
+    actionHistory.value.pop();
+    if (action.absent) {
+      const ids = new Set(absentStudents.value);
+      ids.delete(action.studentId);
+      absentStudents.value = ids;
     }
+    if (action.confirmationDetails)
+      actionConfirmation.value?.show(action.confirmationDetails, true);
+    await startSession();
+  } catch (error) {
+    saveError.value = error.message;
+  } finally {
+    savingEvent.value = false;
   }
-  counts.value = newCounts;
-
-  // Revert per-level count
-  const newLC = { ...levelCounts.value };
-  if (newLC[studentId]) {
-    newLC[studentId] = { ...newLC[studentId] };
-    if (newLC[studentId][skillId]) {
-      newLC[studentId][skillId] = { ...newLC[studentId][skillId] };
-      if (newLC[studentId][skillId][level] != null) {
-        newLC[studentId][skillId][level] -= 1;
-        if (newLC[studentId][skillId][level] <= 0) {
-          delete newLC[studentId][skillId][level];
-        }
-      }
-      if (Object.keys(newLC[studentId][skillId]).length === 0) {
-        delete newLC[studentId][skillId];
-      }
-    }
-    if (Object.keys(newLC[studentId]).length === 0) {
-      delete newLC[studentId];
-    }
-  }
-  levelCounts.value = newLC;
-
-  // Revert used levels — only remove the level marker if no count remains
-  if (!levelCounts.value[studentId]?.[skillId]?.[level]) {
-    const newUsed = { ...usedLevels.value };
-    if (newUsed[studentId]) {
-      newUsed[studentId] = { ...newUsed[studentId] };
-      if (newUsed[studentId][skillId]) {
-        newUsed[studentId][skillId] = { ...newUsed[studentId][skillId] };
-        delete newUsed[studentId][skillId][level];
-        if (Object.keys(newUsed[studentId][skillId]).length === 0) {
-          delete newUsed[studentId][skillId];
-        }
-      }
-      if (Object.keys(newUsed[studentId]).length === 0) {
-        delete newUsed[studentId];
-      }
-    }
-    usedLevels.value = newUsed;
-  }
-
-  // Remove from database
-  const { error } = await supabase
-    .from("tu_session_events")
-    .delete()
-    .eq("id", eventId);
-  if (error) {
-    console.error("Failed to delete event for undo:", error);
-    // Re-push the action so the user can retry
-    actionHistory.value.push(action);
-    return;
-  }
-  actionConfirmation.value?.show(action.confirmationDetails, true);
 }
 
 // ── Clone style (computed for reactivity) ─────────────
@@ -992,23 +959,9 @@ const evalSelectionSummary = computed(() => {
   return parts.join(" · ");
 });
 
-const selectionSummary = computed(() => {
-  // Count total students from checked classes and individually checked students
-  let totalStudents = 0;
-
-  // Add students from checked classes
-  for (const classId of checkedClassIds.value) {
-    const classStudents = allStudents.value.filter(
-      (s) => s.class_id === classId && !excludedStudentIds.value.has(s.id),
-    );
-    totalStudents += classStudents.length;
-  }
-
-  // Add individually checked students
-  totalStudents += checkedStudentIds.value.size;
-
-  return totalStudents > 0 ? totalStudents.toString() : "";
-});
+const selectionSummary = computed(() =>
+  rosterStudents.value.length ? String(rosterStudents.value.length) : "",
+);
 
 async function handleClassCheck(cls) {
   const wasChecked = checkedClassIds.value.has(cls.id);
@@ -1016,7 +969,7 @@ async function handleClassCheck(cls) {
 
   // Clear any excluded students for this class when checking
   if (!wasChecked) {
-    const students = allStudents.value.filter((s) => s.class_id === cls.id);
+    const students = allStudents.value.filter((s) => belongsTo(s, cls.id));
     const newExcluded = new Set(excludedStudentIds.value);
     for (const s of students) {
       newExcluded.delete(s.id);
@@ -1145,6 +1098,13 @@ watch(
   },
 );
 
+watch(
+  () => [
+    rosterStudents.value.map((s) => s.id).join(","),
+    currentSkills.value.map((s) => s.id).join(","),
+  ],
+  () => startSession(),
+);
 const reportModalRef = ref(null); // Reference to ReportModal component
 
 async function openReport() {
@@ -1173,6 +1133,7 @@ defineExpose({
 <template>
   <div
     class="app-root"
+    :aria-busy="loading || savingEvent"
     :class="{
       'modal-open':
         isClassModalOpen ||
@@ -1185,7 +1146,7 @@ defineExpose({
       <div class="top-bar-left">
         <button
           class="undo-btn"
-          :disabled="actionHistory.length === 0"
+          :disabled="actionHistory.length === 0 || savingEvent"
           title="Annuler la dernière action"
           @click="undoLastAction"
         >
@@ -1229,6 +1190,21 @@ defineExpose({
           <template v-else>
             <Sneaker :size="20" />
           </template>
+        </button>
+        <button class="fab" title="Anniversaires" @click="showBirthdays = true">
+          <Cake :size="20" />
+        </button>
+        <button
+          class="fab"
+          title="Changer le thème"
+          @click="
+            preferences.theme = preferences.theme === 'dark' ? 'light' : 'dark'
+          "
+        >
+          <Sun v-if="preferences.theme === 'dark'" :size="20" /><Moon
+            v-else
+            :size="20"
+          />
         </button>
         <!-- Teams button -->
         <button
@@ -1279,6 +1255,12 @@ defineExpose({
       </div>
     </div>
 
+    <div v-if="saveError" class="feature-error" role="alert">
+      {{ saveError }} <button @click="loadAllData">Réessayer</button>
+      <button @click="saveError = ''">Fermer</button>
+    </div>
+    <div v-if="savingEvent" role="status">Enregistrement…</div>
+    <div v-else-if="loading" role="status">Chargement…</div>
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
     <div class="main-content" @click="userMenuOpen = false">
       <!-- LIVE SCREEN (always visible) -->
@@ -1318,11 +1300,44 @@ defineExpose({
                   class="zone-skill-icon"
                   alt=""
                 />
-                <span class="zone-skill-name">{{ skill.name }}</span>
+                <span class="zone-skill-name"
+                  >{{ skill.name }}
+                  <small
+                    v-if="
+                      drag && isSkillComplete(drag.student.id, skill, counts)
+                    "
+                    >— Terminé</small
+                  ></span
+                >
               </span>
             </div>
 
+            <div v-if="skill.grading_mode === 'rubric'" class="rubric-criteria">
+              <div
+                v-for="criterion in skill.criteria"
+                :key="criterion"
+                class="rubric-column"
+              >
+                <strong>{{ criterion }}</strong>
+                <div
+                  v-for="value in [...getSkillScale(skill)].reverse()"
+                  :key="value"
+                  class="zone-segment"
+                  :data-skill-id="skill.id"
+                  :data-level="value"
+                  :data-criterion="criterion"
+                  :class="{
+                    'segment-hover':
+                      hoveredSkillId === skill.id &&
+                      hoveredLevel === String(value),
+                  }"
+                >
+                  {{ Number(value) > 0 ? "+" : "" }}{{ value }}
+                </div>
+              </div>
+            </div>
             <div
+              v-else
               class="zone-segments"
               :style="{ gridTemplateColumns: getZoneGridColumns(skill) }"
             >
@@ -1373,6 +1388,10 @@ defineExpose({
         <!-- Floating drag clone -->
         <Teleport to="body">
           <div v-if="drag" class="drag-clone" :style="cloneStyle">
+            <StudentAvatar
+              v-if="preferences.showPhoto"
+              :student="drag.student"
+            />
             {{ formatStudentName(drag.student) }}
           </div>
         </Teleport>
@@ -1399,6 +1418,7 @@ defineExpose({
             :checked-class-ids="checkedClassIds"
             :checked-student-ids="checkedStudentIds"
             :excluded-student-ids="excludedStudentIds"
+            @deselect-all="deselectAll"
             @close="toggleModal('class')"
             @select-class="selectClass"
             @student-check="handleStudentCheck"
@@ -1431,10 +1451,12 @@ defineExpose({
             key="report"
             :checked-class-ids="checkedClassIds"
             :checked-skill-ids="checkedSkillIds"
-            :current-students="currentStudents"
+            :current-students="rosterStudents"
             :skills="skills"
             :classes="classes"
             :user-id="userId"
+            :teams="teams"
+            :student-team-map="studentTeamMap"
             @close="toggleModal('report')"
           />
 
@@ -1468,12 +1490,21 @@ defineExpose({
       <div class="students-row-center">
         <template v-if="currentStudents.length > 0">
           <div
-            v-for="student in sortedStudents"
+            v-for="student in visibleStudents"
             :key="student.id"
             class="student-wrapper"
             :class="{ 'is-ghost': drag?.student?.id === student.id }"
             :data-student-id="student.id"
-            :style="{ opacity: studentOpacity(student.id) }"
+            :style="{
+              '--student-brightness': studentOpacity(student.id),
+              '--student-ink':
+                studentOpacity(student.id) < 1
+                  ? '#f0f6fc'
+                  : 'var(--text-light)',
+              outline: priorities[student.id]
+                ? `${priorities[student.id] + 1}px solid var(--priority-color)`
+                : 'none',
+            }"
             @pointerdown="onDragStart($event, student)"
           >
             <div
@@ -1482,10 +1513,30 @@ defineExpose({
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
                   : 'none',
-                background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
+                background: 'var(--student-bg)',
               }"
             >
-              {{ formatStudentName(student) }}
+              <StudentAvatar v-if="preferences.showPhoto" :student="student" />
+              <span v-if="formatStudentName(student)" class="student-label">{{
+                formatStudentName(student)
+              }}</span>
+              <span v-else-if="!preferences.showPhoto">{{
+                getInitials(student.firstname, student.lastname)
+              }}</span>
+              <button
+                v-if="priorities[student.id]"
+                class="priority-reduce"
+                title="Réduire la priorité"
+                @pointerdown.stop
+                @click.stop="
+                  priorities = {
+                    ...priorities,
+                    [student.id]: Math.max(0, priorities[student.id] - 1),
+                  }
+                "
+              >
+                <Star :size="16" />{{ priorities[student.id] }}
+              </button>
             </div>
           </div>
         </template>
@@ -1501,10 +1552,30 @@ defineExpose({
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
                   : 'none',
-                background: teamsActive ? 'rgba(69, 123, 157, 0.3)' : '#457b9d',
+                background: 'var(--student-bg)',
               }"
             >
-              {{ formatStudentName(student) }}
+              <StudentAvatar v-if="preferences.showPhoto" :student="student" />
+              <span v-if="formatStudentName(student)" class="student-label">{{
+                formatStudentName(student)
+              }}</span>
+              <span v-else-if="!preferences.showPhoto">{{
+                getInitials(student.firstname, student.lastname)
+              }}</span>
+              <button
+                v-if="priorities[student.id]"
+                class="priority-reduce"
+                title="Réduire la priorité"
+                @pointerdown.stop
+                @click.stop="
+                  priorities = {
+                    ...priorities,
+                    [student.id]: Math.max(0, priorities[student.id] - 1),
+                  }
+                "
+              >
+                <Star :size="16" />{{ priorities[student.id] }}
+              </button>
             </div>
           </div>
         </template>
@@ -1512,18 +1583,45 @@ defineExpose({
 
       <!-- Right zone: absent drop -->
       <div class="students-row-right">
+        <button
+          v-if="hiddenStudents.size"
+          @click="restoreStudents"
+          title="Rétablir les élèves retirés"
+        >
+          Rétablir ({{ hiddenStudents.size }})
+        </button>
+        <div
+          class="session-drop"
+          data-hide-zone
+          title="Retirer temporairement, sans trace"
+        >
+          <EyeOff :size="22" /><small>Retirer</small>
+        </div>
+        <div
+          class="session-drop"
+          data-priority-zone
+          title="Priorité : jusqu’à 3 niveaux"
+        >
+          <Star :size="22" /><small>Priorité</small>
+        </div>
         <div
           class="absent-zone"
           :class="{ 'absent-zone--hover': hoveredAbsent }"
           data-absent-zone
-          title="Glisser un élève ici pour le retirer"
+          title="Consigner une absence"
         >
-          <HatGlasses :size="22" />
+          <HatGlasses :size="22" /><small>Absence</small>
         </div>
       </div>
     </div>
   </div>
 
+  <Birthdays
+    v-if="showBirthdays"
+    :students="allStudents"
+    :selected-students="rosterStudents"
+    @close="showBirthdays = false"
+  />
   <!-- Settings/Filter Modal -->
   <Settings
     :show="showFilterModal"
@@ -1532,6 +1630,12 @@ defineExpose({
     :teams-active="teamsActive"
     :active-team-id="activeTeamId"
     :teams="teams"
+    :active-team-ids="activeTeamIds"
+    :team-batches="teamBatches"
+    :team-batch-id="teamBatchId"
+    @update:active-team-ids="activeTeamIds = $event"
+    @update:team-batch-id="teamBatchId = $event"
+    @reset-priorities="priorities = {}"
     @close="showFilterModal = false"
     @update:sort-by="sortBy = $event"
     @update:gender-filter="genderFilter = $event"
@@ -1554,7 +1658,7 @@ textarea {
 .app-root {
   display: flex;
   flex-direction: column;
-  height: 95dvh;
+  height: 100dvh;
   overflow: hidden;
   max-width: 1366px;
   margin: auto;
@@ -1610,7 +1714,7 @@ textarea {
   transition: background 0.2s;
 }
 
-.user-menu-btn:hover {
+.user-menu-btn:focus-visible {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -1656,7 +1760,7 @@ textarea {
   font-family: inherit;
 }
 
-.user-menu-logout:hover {
+.user-menu-logout:focus-visible {
   background: rgba(239, 68, 68, 0.2);
 }
 
@@ -1755,7 +1859,7 @@ textarea {
 
 /* Filled mode: stroke around the button (for classes and eval only) */
 .fab--filled {
-  border-color: #457b9d;
+  border-color: var(--student-bg);
   background: transparent;
   color: var(--text-light);
   font-weight: 700;
@@ -1768,8 +1872,8 @@ textarea {
   margin-bottom: 0;
 
   padding-bottom: calc(3px + 0.8rem);
-  background: #457b9d;
-  border-color: #457b9d;
+  background: var(--student-bg);
+  border-color: var(--student-bg);
   color: var(--text-light);
 }
 
@@ -1813,7 +1917,7 @@ textarea {
   flex-direction: column;
   gap: 16px;
   padding: 20px 24px;
-  background: #457b9d;
+  background: var(--student-bg);
   border-radius: 20px;
   position: absolute;
   left: 0;
@@ -2205,7 +2309,7 @@ textarea {
   height: 28px;
   border-radius: 50%;
   background: rgba(232, 168, 32, 0.7);
-  color: #1a0e04;
+  color: var(--text-light);
   font-size: 0.75rem;
   font-weight: 700;
   display: flex;
@@ -2441,6 +2545,173 @@ textarea {
   flex-shrink: 0;
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+
+.main-content,
+.live-screen {
+  min-height: 0;
+  flex: 1;
+}
+.live-screen {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.zones-container {
+  flex: 0 0 auto;
+  min-height: 100%;
+  overflow: visible;
+}
+.drop-zone {
+  min-height: 120px;
+}
+.zones-container--grid .drop-zone {
+  min-height: 140px;
+}
+.students-row {
+  max-height: 28dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.students-row-center {
+  min-width: 0;
+  max-height: 26dvh;
+  overflow-y: auto;
+}
+.student-wrapper {
+  border-radius: 16px;
+}
+.student-bubble {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  filter: brightness(var(--student-brightness, 1));
+}
+.student-label {
+  background: var(--student-bg);
+  color: var(--text-light);
+  border-radius: 5px;
+  padding: 0.15rem 0.3rem;
+}
+.session-drop,
+.absent-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 48px;
+  min-height: 48px;
+  color: var(--text-light);
+}
+.session-drop {
+  border: 1px dashed var(--text-light);
+  border-radius: 8px;
+  padding: 0.3rem;
+}
+.session-drop small,
+.absent-zone small {
+  font-size: 0.65rem;
+}
+.top-bar {
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.top-bar-center {
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .top-bar {
+    margin: 4px;
+  }
+  .students-row {
+    gap: 4px;
+  }
+  .students-row-right {
+    gap: 3px;
+  }
+}
+
+.live-screen {
+  background: var(--surface-muted);
+  justify-content: flex-start;
+}
+.drop-zone {
+  background: var(--surface);
+}
+.zone-segment {
+  color: var(--text-light);
+  background: var(--surface-muted);
+}
+.segment-hover {
+  background: var(--accent);
+}
+.rubric-criteria {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.4rem;
+  flex: 1;
+  padding: 0.5rem;
+}
+.rubric-column {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: center;
+}
+.rubric-column .zone-segment {
+  min-height: 40px;
+  font-size: 1.25rem;
+}
+.student-bubble {
+  filter: none;
+  background: color-mix(
+    in srgb,
+    var(--student-bg) calc(var(--student-brightness, 1) * 100%),
+    black
+  ) !important;
+}
+.student-label {
+  background: transparent;
+  color: var(--student-ink, var(--text-light));
+}
+.student-bubble :deep(.student-avatar) {
+  filter: brightness(var(--student-brightness, 1));
+}
+
+.fab {
+  background: var(--surface-muted);
+  color: var(--text-light);
+  transition: border-color 0.2s;
+}
+.fab--filled {
+  border-color: var(--accent);
+}
+.fab--modal-open {
+  background: var(--student-bg);
+}
+.fab--modal-report {
+  background: var(--accent);
+  color: var(--surface);
+}
+.zone-segment,
+.zone-name,
+.student-label {
+  transition: none;
+}
+.drop-zone {
+  transition:
+    border-color 0.18s,
+    transform 0.15s;
+}
+.priority-reduce {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--student-ink);
+}
+.students-row-right {
+  flex-shrink: 0;
 }
 </style>
 ;

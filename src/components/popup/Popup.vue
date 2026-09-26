@@ -43,8 +43,8 @@ const emit = defineEmits(["close"]);
   overflow: hidden;
   padding: 1.4rem;
   border-radius: 16px;
-  background: #ffffff;
-  color: #333;
+  background: var(--surface);
+  color: var(--text-light);
   width: 80vw;
   height: 80vh;
 }
@@ -61,7 +61,7 @@ const emit = defineEmits(["close"]);
 .popup-header h2 {
   margin: 0;
   font-size: 1.45rem;
-  color: #333;
+  color: var(--text-light);
 }
 
 .popup-close {
@@ -72,12 +72,12 @@ const emit = defineEmits(["close"]);
   border: 0;
   border-radius: 9px;
   background: none;
-  color: #333;
+  color: var(--text-light);
   cursor: pointer;
   transition: background 0.2s;
 }
 
-.popup-close:hover {
+.popup-close:focus-visible {
   background: rgba(0, 0, 0, 0.1);
 }
 

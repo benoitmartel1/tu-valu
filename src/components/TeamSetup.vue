@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
+import { distributeByAbility } from "../lib/domain";
+import { mutate } from "../lib/data";
 import { supabase } from "../supabase";
 import { Shuffle } from "@lucide/vue";
 import RangeInput from "./RangeInput.vue";
@@ -123,23 +125,6 @@ const showColorPicker = ref(null); // Track which team's color picker is open
 // Unassigned students (dropped in empty space)
 const unassignedStudents = ref([]);
 
-// Calculate student strength based on existing evaluations
-async function calculateStudentStrength(studentId) {
-  const { data: events } = await supabase
-    .from("tu_session_events")
-    .select("level")
-    .eq("student_id", studentId);
-
-  if (!events || events.length === 0) return 0;
-
-  const levels = events
-    .map((e) => parseFloat(e.level))
-    .filter((l) => !isNaN(l));
-  if (levels.length === 0) return 0;
-
-  return levels.reduce((sum, l) => sum + l, 0) / levels.length;
-}
-
 // Generate teams based on settings
 async function generateTeams() {
   error.value = null;
@@ -165,16 +150,14 @@ async function generateTeams() {
   // Prepare students with additional data, excluding unassigned ones
   let studentsWithInfo = props.students.filter((s) => !unassignedIds.has(s.id));
 
-  if (separationMethod.value === "strength") {
-    // Calculate strength for each student
-    const strengths = await Promise.all(
-      studentsWithInfo.map(async (s) => ({
-        ...s,
-        strength: await calculateStudentStrength(s.id),
-      })),
+  if (
+    ["strength", "ability-balanced", "ability-similar"].includes(
+      separationMethod.value,
+    )
+  ) {
+    studentsWithInfo = [...studentsWithInfo].sort(
+      (a, b) => (b.ability_level ?? -1) - (a.ability_level ?? -1),
     );
-    // Sort by strength descending
-    studentsWithInfo = strengths.sort((a, b) => b.strength - a.strength);
   } else if (separationMethod.value === "gender") {
     // Group by gender first
     const males = studentsWithInfo.filter((s) => s.gender === "M");
@@ -344,6 +327,20 @@ async function generateTeams() {
     });
   }
 
+  if (
+    ["strength", "ability-balanced", "ability-similar"].includes(
+      separationMethod.value,
+    )
+  ) {
+    const groups = distributeByAbility(
+      studentsWithInfo,
+      numTeams,
+      separationMethod.value === "ability-similar",
+    );
+    teams.forEach((team, index) => {
+      team.students = groups[index];
+    });
+  }
   generatedTeams.value = teams;
 }
 
@@ -555,42 +552,15 @@ async function applyTeams() {
   error.value = null;
 
   try {
-    // Create teams in database
-    const teamRecords = [];
-    for (const team of generatedTeams.value) {
-      const { data: teamData, error: teamError } = await supabase
-        .from("tu_teams")
-        .insert({
+    await mutate(
+      supabase.rpc("tu_save_teams", {
+        teams: generatedTeams.value.map((team) => ({
           name: team.name,
-          user_id: userId.value,
           color: team.color || null,
-        })
-        .select()
-        .single();
-
-      if (teamError) throw teamError;
-      teamRecords.push({ tempId: team.id, realId: teamData.id });
-    }
-
-    // Create student-team relationships
-    for (const team of generatedTeams.value) {
-      const teamRecord = teamRecords.find((t) => t.tempId === team.id);
-      if (!teamRecord) continue;
-
-      const relationships = team.students.map((student) => ({
-        student_id: student.id,
-        team_id: teamRecord.realId,
-      }));
-
-      if (relationships.length > 0) {
-        const { error: relError } = await supabase
-          .from("tu_student_teams")
-          .insert(relationships);
-
-        if (relError) throw relError;
-      }
-    }
-
+          student_ids: team.students.map((s) => s.id),
+        })),
+      }),
+    );
     emit("done", generatedTeams.value);
   } catch (e) {
     error.value = e.message;
@@ -674,6 +644,15 @@ function getTeamColor(teamIndex) {
 
         <div class="setting-group">
           <label class="setting-label">Distribution</label>
+          <label class="radio-option"
+            ><input
+              type="radio"
+              v-model="separationMethod"
+              value="ability-similar"
+              @change="generateTeams"
+            />
+            Niveaux similaires</label
+          >
           <div class="radio-group">
             <label class="radio-option">
               <input
@@ -688,10 +667,10 @@ function getTeamColor(teamIndex) {
               <input
                 type="radio"
                 v-model="separationMethod"
-                value="strength"
+                value="ability-balanced"
                 @change="generateTeams"
               />
-              Niveau
+              Niveaux équilibrés
             </label>
             <label class="radio-option">
               <input
@@ -1057,7 +1036,7 @@ function getTeamColor(teamIndex) {
   cursor: pointer;
   transition: all 0.2s;
   font-family: inherit;
-  background: #457b9d;
+  background: var(--student-bg);
   border: none;
   color: var(--text-light);
 }
@@ -1210,7 +1189,7 @@ function getTeamColor(teamIndex) {
   z-index: 10;
 }
 
-.unassigned-student-pill:hover {
+.unassigned-student-pill:focus-visible {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(255, 200, 80, 0.3);
 }

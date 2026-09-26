@@ -83,8 +83,8 @@ function resetSearch() {
   padding: 0.75rem 1rem;
   border: 2px solid #e0e0e0;
   border-radius: 999px;
-  background: #f8f9fa;
-  color: #333;
+  background: var(--surface);
+  color: var(--text-light);
   font-size: 1rem;
   font-family: inherit;
   outline: none;
@@ -94,7 +94,7 @@ function resetSearch() {
 
 .icon-selector-input:focus {
   border-color: #4a90d9;
-  background: #fff;
+  background: var(--surface);
 }
 
 .icon-selector-grid {
@@ -113,13 +113,13 @@ function resetSearch() {
   justify-content: center;
   border-radius: 12px;
   border: 2px solid transparent;
-  background: #f8f9fa;
+  background: var(--surface);
   cursor: pointer;
   padding: 8px;
   transition: all 0.15s;
 }
 
-.icon-selector-option:hover {
+.icon-selector-option:focus-visible {
   background: #e8f0fe;
   transform: scale(1.05);
 }

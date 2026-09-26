@@ -1,13 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { Trash2 } from "@lucide/vue";
+import RecordTools from "./RecordTools.vue";
 import { supabase } from "../../supabase";
 
 const props = defineProps({
   evalId: { type: String, default: null },
 });
 
-const emit = defineEmits(["saved", "deleted"]);
+const emit = defineEmits(["saved", "deleted", "duplicated", "data-changed"]);
 
 const evalTitle = ref("");
 const skillCount = ref(0);
@@ -98,6 +99,13 @@ async function deleteEval() {
 
 <template>
   <div class="eval-detail">
+    <RecordTools
+      v-if="evalId"
+      kind="evaluation"
+      :id="evalId"
+      @changed="emit('data-changed')"
+      @duplicated="emit('duplicated', $event)"
+    />
     <div v-if="loading && !evalTitle" class="detail-loading"></div>
     <template v-else>
       <div class="detail-section">
@@ -173,7 +181,7 @@ async function deleteEval() {
   display: block;
   flex-shrink: 0;
   margin: 0;
-  color: #fff;
+  color: var(--text-light);
   font-size: 1.125rem;
   font-weight: 700;
 }

@@ -1,6 +1,14 @@
 <script setup>
 import { ref, computed, watch } from "vue";
-import { ChevronUp, Plus, Check, PenIcon } from "@lucide/vue";
+import {
+  ChevronUp,
+  Plus,
+  Check,
+  PenIcon,
+  ArrowUp,
+  ArrowDown,
+} from "@lucide/vue";
+import { mutate } from "../../lib/data";
 import { supabase } from "../../supabase";
 import EvalDetail from "../detail/EvalDetail.vue";
 import SkillDetail from "../detail/SkillDetail.vue";
@@ -17,6 +25,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   "close",
+  "skill-check",
   "select-eval",
   "data-changed",
   "eval-check",
@@ -25,6 +34,49 @@ const emit = defineEmits([
 // ── Internal state ──────────────────────────────────────
 const editingEvalId = ref(null);
 const skillDetailId = ref(null);
+const showArchived = ref(false),
+  termFilter = ref(""),
+  moveError = ref(""),
+  moving = ref(false),
+  draggedEval = ref(null);
+const orderedEvaluations = computed(() =>
+  [...props.evaluations].sort(
+    (a, b) =>
+      a.sort_order - b.sort_order || a.title.localeCompare(b.title, "fr"),
+  ),
+);
+const filteredEvaluations = computed(() =>
+  orderedEvaluations.value.filter(
+    (ev) =>
+      Boolean(ev.archived_at) === showArchived.value &&
+      (!termFilter.value || Number(termFilter.value) === ev.school_term),
+  ),
+);
+async function moveEval(id, targetId) {
+  if (!id || id === targetId || moving.value) return;
+  const ids = orderedEvaluations.value.map((ev) => ev.id);
+  const from = ids.indexOf(id),
+    to = ids.indexOf(targetId);
+  if (from < 0 || to < 0) return;
+  ids.splice(from, 1);
+  ids.splice(to, 0, id);
+  moving.value = true;
+  moveError.value = "";
+  try {
+    await mutate(supabase.rpc("tu_reorder_evaluations", { ids }));
+    emit("data-changed");
+  } catch (e) {
+    moveError.value = e.message;
+  } finally {
+    moving.value = false;
+    draggedEval.value = null;
+  }
+}
+function moveBy(id, delta) {
+  const rows = filteredEvaluations.value;
+  const target = rows[rows.findIndex((ev) => ev.id === id) + delta];
+  if (target) moveEval(id, target.id);
+}
 
 // ── Helper functions ────────────────────────────────────
 function getSkillsForEval(evalId) {
@@ -156,8 +208,42 @@ function onSkillDeleted(id) {
                 <Plus :size="20" :stroke-width="3" />
               </button>
             </div>
+            <div class="feature-fields">
+              <label
+                ><input type="checkbox" v-model="showArchived" />
+                Archives</label
+              ><select v-model="termFilter" aria-label="Étape">
+                <option value="">Toutes les étapes</option>
+                <option v-for="n in 3" :key="n" :value="n">
+                  Étape {{ n }}
+                </option>
+              </select>
+              <p v-if="moveError" role="alert">{{ moveError }}</p>
+            </div>
             <div class="class-list">
-              <div v-for="ev in evaluations" :key="ev.id">
+              <div
+                v-for="ev in filteredEvaluations"
+                :key="ev.id"
+                draggable="true"
+                @dragstart="draggedEval = ev.id"
+                @dragover.prevent
+                @drop.prevent="moveEval(draggedEval, ev.id)"
+              >
+                <div class="feature-toolbar">
+                  <button
+                    :disabled="moving"
+                    @click="moveBy(ev.id, -1)"
+                    title="Monter"
+                  >
+                    <ArrowUp :size="16" /></button
+                  ><button
+                    :disabled="moving"
+                    @click="moveBy(ev.id, 1)"
+                    title="Descendre"
+                  >
+                    <ArrowDown :size="16" />
+                  </button>
+                </div>
                 <button
                   class="picker-item class-item"
                   :class="{
@@ -208,8 +294,11 @@ function onSkillDeleted(id) {
                 class="class-detail-container"
               >
                 <EvalDetail
+                  :key="editingEvalId"
+                  @data-changed="emit('data-changed')"
                   :eval-id="editingEvalId"
                   @saved="onEvalSaved"
+                  @duplicated="editingEvalId = $event"
                   @deleted="onEvalDeleted"
                 />
               </div>
@@ -292,6 +381,7 @@ function onSkillDeleted(id) {
                 :icons="skillIconNames"
                 @close="skillDetailId = null"
                 @deleted="onSkillDeleted"
+                @duplicated="skillDetailId = $event"
                 @data-changed="emit('data-changed')"
               />
             </Transition>

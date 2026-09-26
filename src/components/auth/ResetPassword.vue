@@ -222,7 +222,7 @@ label {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  color: #333;
+  color: var(--text-light);
   font-weight: 500;
   font-size: 14px;
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch, onUnmounted } from "vue";
 import {
   ArrowLeft,
   Upload,
@@ -7,6 +7,9 @@ import {
   Image as ImageIcon,
   FileText,
 } from "@lucide/vue";
+import { preferences } from "../../stores/preferences";
+import { photoCandidates, parseDelimited } from "../../lib/domain";
+import { allRows } from "../../lib/data";
 import { supabase } from "../../supabase";
 import { userId } from "../../stores/auth";
 import Popup from "./Popup.vue";
@@ -62,51 +65,11 @@ function longestCommonSubstringLength(first, second) {
 }
 
 function findStudentByFilename(filename, students) {
-  const normalizedFilename = normalizeName(filename.replace(/\.[^/.]+$/, ""));
-  if (normalizedFilename.length < 4) return null;
-
-  const scoredStudents = students
-    .map((student) => {
-      const firstname = normalizeName(student.firstname);
-      const lastname = normalizeName(student.lastname);
-      const firstMatch = firstname && normalizedFilename.includes(firstname);
-      const lastMatch = lastname && normalizedFilename.includes(lastname);
-      const exactPartsScore = firstMatch && lastMatch ? 100 : 0;
-      const longestPart = Math.max(
-        longestCommonSubstringLength(normalizedFilename, firstname),
-        longestCommonSubstringLength(normalizedFilename, lastname),
-      );
-
-      let score = exactPartsScore;
-      if (!score && longestPart >= 4) {
-        score = 50 + Math.min(longestPart, 20);
-      }
-
-      const filenameParts = filename
-        .replace(/\.[^/.]+$/, "")
-        .split(/[_\s,-]+/)
-        .map(normalizeName)
-        .filter(Boolean);
-      const fuzzyDistance = Math.min(
-        ...filenameParts.flatMap((part) => [
-          levenshteinDistance(part, firstname),
-          levenshteinDistance(part, lastname),
-        ]),
-      );
-      if (!score && fuzzyDistance <= 2 && filenameParts.length > 0) {
-        score = 40;
-      }
-
-      return { student, score };
-    })
-    .filter(({ score }) => score > 0)
-    .sort((first, second) => second.score - first.score);
-
-  const best = scoredStudents[0];
-  const runnerUp = scoredStudents[1];
-  if (!best || (runnerUp && best.score === runnerUp.score)) return null;
-
-  return best.student;
+  const candidates = photoCandidates(filename, students);
+  return candidates[0]?.score >= 80 &&
+    candidates[0].score > (candidates[1]?.score || 0)
+    ? candidates[0].student
+    : null;
 }
 
 const emit = defineEmits(["close", "imported", "photos-imported"]);
@@ -116,6 +79,24 @@ const importType = ref(null); // 'students' or 'pictures'
 
 // Students import state (existing)
 const rawText = ref("");
+const pasteArea = ref(null);
+let resizeObserver;
+const filePreviews = new Map();
+watch(pasteArea, (element) => {
+  resizeObserver?.disconnect();
+  if (element) {
+    resizeObserver = new ResizeObserver(() => {
+      preferences.pasteHeight = Math.round(
+        element.getBoundingClientRect().height,
+      );
+    });
+    resizeObserver.observe(element);
+  }
+});
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+  for (const url of filePreviews.values()) URL.revokeObjectURL(url);
+});
 const loading = ref(false);
 const errorMessage = ref("");
 const step = ref("paste");
@@ -125,6 +106,7 @@ const columnMap = ref({
   gender: 2,
   birthDate: 3,
   studentNumber: -1,
+  recordNumber: -1,
 });
 
 // Pictures import state (new)
@@ -171,16 +153,11 @@ const headers = computed(() => {
 });
 
 const rows = computed(() => {
-  const lines = rawText.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return [];
-
-  const delimiter = detectDelimiter(lines[0]);
-  return lines.map((line) =>
-    delimiter ? line.split(delimiter).map((cell) => cell.trim()) : [line],
-  );
+  try {
+    return parseDelimited(rawText.value);
+  } catch {
+    return [];
+  }
 });
 
 const dataRows = computed(() => {
@@ -233,6 +210,10 @@ const parsedStudents = computed(() =>
       }
 
       return {
+        recordNumber:
+          columnMap.value.recordNumber >= 0
+            ? String(row[columnMap.value.recordNumber] || "").trim()
+            : null,
         group: (row[columnMap.value.group] || "").trim(),
         firstname: firstname.trim(),
         lastname: lastname.trim(),
@@ -290,6 +271,12 @@ function parseDate(value) {
 
 function openVerification() {
   errorMessage.value = "";
+  try {
+    parseDelimited(rawText.value);
+  } catch (error) {
+    errorMessage.value = error.message;
+    return;
+  }
   if (parsedStudents.value.length === 0) {
     errorMessage.value = "Aucun élève valide détecté.";
     return;
@@ -337,17 +324,15 @@ async function importStudents() {
       lastname: student.lastname,
       gender: student.gender,
       birth_date: student.birthDate,
+      record_number: student.recordNumber || null,
       student_number: student.studentNumber, // Will be null if not provided
       class_id: classByName.get(student.group)?.id,
       user_id: userId.value,
     }));
 
-    // Insert students
-    const { data: insertedStudents, error: studentInsertError } = await supabase
-      .from("tu_students")
-      .insert(studentsToInsert)
-      .select("id, class_id, student_number");
-
+    // The server resolves permanent IDs and adds memberships atomically.
+    const { data: insertedStudents, error: studentInsertError } =
+      await supabase.rpc("tu_import_students", { rows: studentsToInsert });
     if (studentInsertError) throw studentInsertError;
 
     // Auto-assign student numbers for those without one
@@ -406,6 +391,12 @@ async function importStudents() {
               updateError,
             );
           } else {
+            const { error: membershipError } = await supabase
+              .from("tu_student_classes")
+              .update({ student_number: newNumber })
+              .eq("student_id", students[i].id)
+              .eq("class_id", classId);
+            if (membershipError) throw membershipError;
             console.log(
               `Assigned number ${newNumber} to student ${students[i].id}`,
             );
@@ -466,7 +457,9 @@ function handleFileDrop(event) {
 }
 
 function getFilePreview(file) {
-  return URL.createObjectURL(file);
+  if (!filePreviews.has(file))
+    filePreviews.set(file, URL.createObjectURL(file));
+  return filePreviews.get(file);
 }
 
 function parseFilename(filename) {
@@ -560,15 +553,16 @@ async function matchStudentsToPictures() {
       "files",
     );
 
-    // Load ALL students (not filtered by class)
-    const { data: students, error } = await supabase
-      .from("tu_students")
-      .select("id, firstname, lastname, student_number, class_id");
-
-    if (error) throw error;
-
-    console.log("📚 Loaded", students.length, "students from database");
-
+    const students = await allRows(() =>
+      supabase.from("tu_students").select("*").order("id"),
+    );
+    const memberships = await allRows(() =>
+      supabase
+        .from("tu_student_classes")
+        .select("*")
+        .order("student_id")
+        .order("class_id"),
+    );
     // Store all students for search
     allStudentsForSearch.value = students || [];
 
@@ -580,18 +574,33 @@ async function matchStudentsToPictures() {
       console.log("📄 Processing file:", file.name, "→ Parsed as:", parsed);
 
       let studentMatch = null;
+      let candidates = photoCandidates(file.name, students);
 
       if (parsed.type === "class-number") {
         console.log(
           "  → Trying class-number match (stripped):",
           parsed.classIdentifier + "-" + parsed.studentNumber,
         );
-        // Match by student number across all students (try both with and without leading zeros)
-        studentMatch = students.find((s) => {
-          if (!s.student_number) return false;
-          const stripped = String(parseInt(s.student_number)); // Strip leading zeros from DB
-          return stripped === parsed.studentNumber;
-        });
+        const matchingClass = classes.value.find(
+          (c) => String(c.name) === parsed.classIdentifier,
+        );
+        const numberMatches = students.filter(
+          (s) =>
+            matchingClass &&
+            memberships.some(
+              (m) =>
+                m.class_id === matchingClass.id &&
+                m.student_id === s.id &&
+                String(
+                  parseInt(
+                    m.student_number ||
+                      (s.class_id === m.class_id ? s.student_number : null),
+                  ),
+                ) === parsed.studentNumber,
+            ),
+        );
+        candidates = numberMatches.map((student) => ({ student, score: 100 }));
+        studentMatch = numberMatches.length === 1 ? numberMatches[0] : null;
         if (studentMatch) {
           console.log(
             "  ✅ Found match by student number:",
@@ -626,6 +635,7 @@ async function matchStudentsToPictures() {
         unmatched.push({
           file,
           student: null,
+          candidates: candidates.slice(0, 6),
           parsed,
           manualMatch: false,
         });
@@ -892,6 +902,8 @@ function close() {
             id="student-import-text"
             v-model="rawText"
             class="student-import-textarea"
+            ref="pasteArea"
+            :style="{ height: `${preferences.pasteHeight}px` }"
             autofocus
             placeholder="Groupe\tNom de l'élève\tSexe\tDate de naissance"
           ></textarea>
@@ -904,6 +916,7 @@ function close() {
                 { key: 'group', label: 'Groupe' },
                 { key: 'name', label: 'Nom de l\'élève' },
                 { key: 'studentNumber', label: 'Numéro (optionnel)' },
+                { key: 'recordNumber', label: 'Fiche permanente (optionnel)' },
                 { key: 'gender', label: 'Sexe' },
                 { key: 'birthDate', label: 'Date de naissance' },
               ]"
@@ -1092,6 +1105,31 @@ function close() {
                 </span>
               </div>
               <div class="match-student-info">
+                <label v-if="!match.student && match.candidates?.length"
+                  >Choisir parmi les correspondances<select
+                    @change="updateManualMatch(index, $event.target.value)"
+                  >
+                    <option value="">Choisir un élève</option>
+                    <option
+                      v-for="candidate in match.candidates"
+                      :key="candidate.student.id"
+                      :value="candidate.student.id"
+                    >
+                      {{ candidate.student.firstname }}
+                      {{ candidate.student.lastname }} ·
+                      {{
+                        candidate.student.record_number ||
+                        candidate.student.student_number ||
+                        "Sans numéro"
+                      }}
+                      ·
+                      {{
+                        classes.find((c) => c.id === candidate.student.class_id)
+                          ?.name
+                      }}
+                    </option>
+                  </select></label
+                >
                 <template v-if="match.student">
                   <span class="match-success"
                     >✓ {{ match.student.firstname }}
@@ -1247,7 +1285,7 @@ function close() {
 .student-import-mapping {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.55rem;
   margin-top: 0.9rem;
 }
@@ -1278,7 +1316,7 @@ function close() {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.78rem;
-  background: #ddd;
+  background: var(--surface);
 }
 .student-import-table-wrap th,
 .student-import-table-wrap td {
@@ -1289,7 +1327,7 @@ function close() {
 .student-import-table-wrap th {
   position: sticky;
   top: 0;
-  background: #ddd;
+  background: var(--surface);
 }
 .student-import-empty,
 .student-import-error {
@@ -1305,7 +1343,7 @@ function close() {
   margin-top: 1rem;
   position: sticky;
   bottom: 0;
-  background: #ffffff;
+  background: var(--surface);
   padding-top: 1rem;
   border-top: 1px solid #e0e0e0;
   z-index: 10;
@@ -1315,7 +1353,7 @@ function close() {
 }
 .student-import-submit {
   background: var(--stadium-yellow);
-  color: #1a0e04;
+  color: var(--text-light);
   font-weight: 700;
 }
 .student-import-submit:disabled,
@@ -1366,13 +1404,13 @@ function close() {
   padding: 2rem 2.5rem;
   border: 2px solid #e0e0e0;
   border-radius: 16px;
-  background: #f8f9fa;
+  background: var(--surface);
   cursor: pointer;
   transition: all 0.2s;
   min-width: 200px;
 }
 
-.import-type-option:hover {
+.import-type-option:focus-visible {
   border-color: #4a90d9;
   background: #e8f0fe;
   transform: translateY(-2px);
@@ -1382,7 +1420,7 @@ function close() {
 .import-type-option span {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #333;
+  color: var(--text-light);
 }
 
 .import-type-option small {
@@ -1409,11 +1447,11 @@ function close() {
   padding: 3rem 2rem;
   text-align: center;
   transition: all 0.2s;
-  background: #f8f9fa;
+  background: var(--surface);
   flex-shrink: 0;
 }
 
-.file-drop-zone:hover {
+.file-drop-zone:focus-visible {
   border-color: #4a90d9;
   background: #e8f0fe;
 }
@@ -1485,7 +1523,7 @@ function close() {
   align-items: center;
   gap: 6px;
   padding: 6px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   min-width: 0;
@@ -1529,7 +1567,7 @@ function close() {
   border: 1.5px solid #ddd;
   border-radius: 8px;
   font-size: 1rem;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -1556,7 +1594,7 @@ function close() {
   gap: 1rem;
   padding: 1rem;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--surface);
   border: 1px solid #e0e0e0;
 }
 
@@ -1566,7 +1604,7 @@ function close() {
   height: 60px;
   border-radius: 6px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -1595,7 +1633,7 @@ function close() {
 
 .match-filename {
   font-weight: 600;
-  color: #333;
+  color: var(--text-light);
 }
 
 .match-hint {
@@ -1630,7 +1668,7 @@ function close() {
   transition: all 0.15s;
 }
 
-.remove-match-button:hover {
+.remove-match-button:focus-visible {
   background: rgba(198, 40, 40, 0.1);
 }
 
@@ -1699,7 +1737,7 @@ function close() {
 
 .student-search-result-item .student-name {
   font-weight: 500;
-  color: #333;
+  color: var(--text-light);
 }
 
 .student-search-result-item .student-class {
@@ -1717,7 +1755,7 @@ function close() {
 .upload-results h3 {
   margin: 0;
   font-size: 1.2rem;
-  color: #333;
+  color: var(--text-light);
 }
 
 .results-summary {
@@ -1741,7 +1779,7 @@ function close() {
   justify-content: space-between;
   padding: 0.75rem 1rem;
   border-radius: 6px;
-  background: #f8f9fa;
+  background: var(--surface);
   font-size: 0.9rem;
 }
 
@@ -1757,5 +1795,30 @@ function close() {
 
 .error-text {
   font-size: 0.85rem;
+}
+
+.student-import-textarea {
+  width: 100%;
+  min-height: 180px;
+  max-height: 55dvh;
+  resize: vertical;
+  overflow: auto;
+  white-space: pre;
+  font-family: monospace;
+  padding: 0.75rem;
+  background: var(--surface);
+  color: var(--text-light);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+.student-import-field {
+  display: grid;
+  grid-template-rows: minmax(2.5em, auto) auto;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.student-import-field select {
+  width: 100%;
+  min-width: 0;
 }
 </style>

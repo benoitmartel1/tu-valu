@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { Trash2 } from "@lucide/vue";
+import RecordTools from "./RecordTools.vue";
 import { supabase } from "../../supabase";
 
 const props = defineProps({
@@ -8,7 +9,7 @@ const props = defineProps({
   allStudents: { type: Array, required: true },
 });
 
-const emit = defineEmits(["saved", "deleted"]);
+const emit = defineEmits(["saved", "deleted", "duplicated", "data-changed"]);
 
 const className = ref("");
 const loading = ref(false);
@@ -16,8 +17,9 @@ const originalClassName = ref("");
 const isNewClass = computed(() => !props.classId);
 const studentCount = computed(
   () =>
-    props.allStudents.filter((student) => student.class_id === props.classId)
-      .length,
+    props.allStudents.filter((student) =>
+      (student.class_ids || [student.class_id]).includes(props.classId),
+    ).length,
 );
 
 onMounted(async () => {
@@ -70,7 +72,12 @@ async function saveClass() {
 
 async function deleteClass() {
   if (isNewClass.value || loading.value) return;
-  if (!confirm("Supprimer cette classe et tous ses élèves ?")) return;
+  if (
+    !confirm(
+      "Supprimer ce groupe ? Les fiches permanentes des élèves sont conservées. Les traces historiques sont conservées.",
+    )
+  )
+    return;
 
   loading.value = true;
   try {
@@ -90,6 +97,13 @@ async function deleteClass() {
 
 <template>
   <div class="class-detail">
+    <RecordTools
+      v-if="classId"
+      kind="class"
+      :id="classId"
+      @changed="emit('data-changed')"
+      @duplicated="emit('duplicated', $event)"
+    />
     <div v-if="loading && !className" class="detail-loading"></div>
     <template v-else>
       <div class="detail-section">
@@ -173,7 +187,7 @@ async function deleteClass() {
   display: block;
   flex-shrink: 0;
   margin: 0;
-  color: #fff;
+  color: var(--text-light);
   font-size: 1.125rem;
   font-weight: 700;
 }

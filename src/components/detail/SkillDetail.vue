@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from "vue";
+import SkillOptions from "./SkillOptions.vue";
 import { Trash2 } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import RangeInput from "../RangeInput.vue";
@@ -16,7 +17,7 @@ const props = defineProps({
   icons: { type: Array, required: true },
 });
 
-const emit = defineEmits(["close", "deleted", "data-changed"]);
+const emit = defineEmits(["close", "deleted", "data-changed", "duplicated"]);
 
 const skillDetailEditing = ref(null);
 const showSkillIconPicker = ref(false);
@@ -78,7 +79,7 @@ watch(
       // Fallback: load from Supabase if not in skills
       const { data } = await supabase
         .from("tu_skills")
-        .select("id, name, scale, icon")
+        .select("*")
         .eq("id", id)
         .single();
 
@@ -227,6 +228,11 @@ function selectSkillIcon(iconName) {
 
         <!-- Right column: fields -->
         <div v-if="skillDetailEditing" class="student-detail-fields">
+          <SkillOptions
+            :id="skillId"
+            @changed="emit('data-changed')"
+            @duplicated="emit('duplicated', $event)"
+          />
           <div class="detail-section">
             <label class="detail-label">Nom</label>
             <input
@@ -238,7 +244,13 @@ function selectSkillIcon(iconName) {
           </div>
           <div class="detail-section">
             <label class="detail-label">Échelle</label>
-            <div class="skill-range-config">
+            <div
+              v-if="
+                !skillDetailEditing.grading_mode ||
+                skillDetailEditing.grading_mode === 'numeric'
+              "
+              class="skill-range-config"
+            >
               <RangeInput
                 v-model:value="editingNewSkillMin"
                 :min="0"
@@ -344,7 +356,7 @@ function selectSkillIcon(iconName) {
   display: block;
   font-size: 1.125rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-light);
   margin-bottom: 0.5rem;
 }
 
