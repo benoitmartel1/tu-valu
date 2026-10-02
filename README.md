@@ -30,6 +30,8 @@ npx vite --host 127.0.0.1 --port 5173
 
 Open http://127.0.0.1:5173/tu-valu/ (or the port printed by Vite). Restart Vite after changing environment variables. Signing in requires an account with access to the selected project.
 
+For Google sign-in and magic links, add `http://localhost:5173/tu-valu/` and `http://127.0.0.1:5173/tu-valu/` to Supabase Authentication → URL Configuration → Redirect URLs. Include the trailing slash and use your actual Vite port. The app derives its return URL from Vite's configured base path. Google's authorized redirect URI remains the Supabase project's `/auth/v1/callback` URL.
+
 ## Enable student photos
 
 Photo display and uploads also require PHP 8.1 or newer, Composer, and development object-storage credentials:

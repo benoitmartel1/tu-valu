@@ -41,11 +41,7 @@ export async function signInWithMagicLink(email) {
   try {
     console.log("Sending magic link to:", email);
 
-    // Build the correct redirect URL including the /tu-valu subdirectory
-    const baseUrl = window.location.origin;
-    const redirectUrl = baseUrl.includes("/tu-valu")
-      ? baseUrl
-      : `${baseUrl}/tu-valu`;
+    const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin).href;
 
     console.log("Redirect URL:", redirectUrl);
 
@@ -74,11 +70,7 @@ export async function signInWithMagicLink(email) {
 }
 
 export async function signInWithProvider(provider) {
-  // Build the correct redirect URL including the /tu-valu subdirectory
-  const baseUrl = window.location.origin;
-  const redirectUrl = baseUrl.includes("/tu-valu")
-    ? baseUrl
-    : `${baseUrl}/tu-valu`;
+  const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin).href;
 
   console.log(`Signing in with ${provider}`);
   console.log("Redirect URL:", redirectUrl);
