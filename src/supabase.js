@@ -5,12 +5,16 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+const authRedirectUrl = () =>
+  new URL(import.meta.env.BASE_URL, window.location.origin).href;
+
 // Authentication helper functions
 export async function signUp(email, password) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
+      emailRedirectTo: authRedirectUrl(),
       data: {
         app_name: "tu-valu",
       },
@@ -41,11 +45,7 @@ export async function signInWithMagicLink(email) {
   try {
     console.log("Sending magic link to:", email);
 
-    // Build the correct redirect URL including the /tu-valu subdirectory
-    const baseUrl = window.location.origin;
-    const redirectUrl = baseUrl.includes("/tu-valu")
-      ? baseUrl
-      : `${baseUrl}/tu-valu`;
+    const redirectUrl = authRedirectUrl();
 
     console.log("Redirect URL:", redirectUrl);
 
@@ -74,11 +74,7 @@ export async function signInWithMagicLink(email) {
 }
 
 export async function signInWithProvider(provider) {
-  // Build the correct redirect URL including the /tu-valu subdirectory
-  const baseUrl = window.location.origin;
-  const redirectUrl = baseUrl.includes("/tu-valu")
-    ? baseUrl
-    : `${baseUrl}/tu-valu`;
+  const redirectUrl = authRedirectUrl();
 
   console.log(`Signing in with ${provider}`);
   console.log("Redirect URL:", redirectUrl);
@@ -122,16 +118,12 @@ export function onAuthStateChange(callback) {
 }
 
 export async function resetPassword(email) {
-  // Build the correct redirect URL including the /tu-valu subdirectory
-  const baseUrl = window.location.origin;
-  const redirectUrl = baseUrl.includes("/tu-valu")
-    ? baseUrl
-    : `${baseUrl}/tu-valu`;
+  const redirectUrl = new URL("reset-password", authRedirectUrl()).href;
 
-  console.log("Password reset redirect URL:", `${redirectUrl}/reset-password`);
+  console.log("Password reset redirect URL:", redirectUrl);
 
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${redirectUrl}/reset-password`,
+    redirectTo: redirectUrl,
   });
 
   if (error) {
@@ -192,7 +184,7 @@ export async function checkOAuthConfig() {
       `- Callback URL: https://edmzyjbiamagocfjwrlw.supabase.co/auth/v1/callback`,
     );
     console.log(
-      `- Redirect after auth: ${window.location.origin}${window.location.pathname.includes("/tu-valu") ? "" : "/tu-valu"}`,
+      `- Redirect after auth: ${authRedirectUrl()}`,
     );
   }
 
