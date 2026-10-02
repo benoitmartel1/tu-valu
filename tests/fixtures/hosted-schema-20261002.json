@@ -1,0 +1,999 @@
+{
+  "columns": [
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_classes",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "name",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_classes",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_classes",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_classes",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_evaluations",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "title",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_evaluations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_evaluations",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_evaluations",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "class_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "evaluation_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "student_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "skill_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "0",
+      "column_name": "mastery",
+      "data_type": "integer",
+      "is_nullable": "NO",
+      "table_name": "tu_session_events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "level",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "session_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "team_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_session_events",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_sessions",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "class_id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_sessions",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "evaluation_id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_sessions",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "started_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "NO",
+      "table_name": "tu_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "ended_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "NO",
+      "table_name": "tu_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_sessions",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_skills",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "name",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_skills",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "evaluation_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_skills",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_skills",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "'[\"1\", \"2\", \"3\", \"4\", \"5\"]'::jsonb",
+      "column_name": "scale",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "table_name": "tu_skills",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "icon",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_skills",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_skills",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "student_id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_student_teams",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "team_id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_student_teams",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_student_teams",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_students",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "firstname",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "class_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "''::text",
+      "column_name": "lastname",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "gender",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "birth_date",
+      "data_type": "date",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "date"
+    },
+    {
+      "column_default": "'{\"showInitial\": false, \"showLastname\": false, \"showFirstname\": true}'::jsonb",
+      "column_name": "name_display_prefs",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "student_number",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "photo_url",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "custom_name",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_students",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "table_name": "tu_teams",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "name",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "table_name": "tu_teams",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "table_name": "tu_teams",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "table_name": "tu_teams",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "color",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "table_name": "tu_teams",
+      "udt_name": "text"
+    }
+  ],
+  "constraints": [
+    {
+      "conname": "tu_sessions_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_sessions"
+    },
+    {
+      "conname": "tu_session_events_session_id_fkey",
+      "definition": "FOREIGN KEY (session_id) REFERENCES tu_sessions(id)",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_teams_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_teams"
+    },
+    {
+      "conname": "tu_evaluations_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_evaluations"
+    },
+    {
+      "conname": "tu_skills_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_skills"
+    },
+    {
+      "conname": "tu_teams_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_teams"
+    },
+    {
+      "conname": "tu_classes_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_classes"
+    },
+    {
+      "conname": "tu_students_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_students"
+    },
+    {
+      "conname": "tu_session_events_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_student_teams_pkey",
+      "definition": "PRIMARY KEY (student_id, team_id)",
+      "table_name": "tu_student_teams"
+    },
+    {
+      "conname": "tu_student_teams_student_id_fkey",
+      "definition": "FOREIGN KEY (student_id) REFERENCES tu_students(id) ON DELETE CASCADE",
+      "table_name": "tu_student_teams"
+    },
+    {
+      "conname": "tu_student_teams_team_id_fkey",
+      "definition": "FOREIGN KEY (team_id) REFERENCES tu_teams(id) ON DELETE CASCADE",
+      "table_name": "tu_student_teams"
+    },
+    {
+      "conname": "tu_session_events_mastery_check",
+      "definition": "CHECK (((mastery >= 0) AND (mastery <= 100)))",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_session_events_team_id_fkey",
+      "definition": "FOREIGN KEY (team_id) REFERENCES tu_teams(id) ON DELETE SET NULL",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_session_events_class_id_fkey",
+      "definition": "FOREIGN KEY (class_id) REFERENCES tu_classes(id) ON DELETE CASCADE",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_session_events_student_id_fkey",
+      "definition": "FOREIGN KEY (student_id) REFERENCES tu_students(id) ON DELETE CASCADE",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_session_events_skill_id_fkey",
+      "definition": "FOREIGN KEY (skill_id) REFERENCES tu_skills(id) ON DELETE CASCADE",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_session_events_evaluation_id_fkey",
+      "definition": "FOREIGN KEY (evaluation_id) REFERENCES tu_evaluations(id) ON DELETE CASCADE",
+      "table_name": "tu_session_events"
+    },
+    {
+      "conname": "tu_sessions_class_id_fkey",
+      "definition": "FOREIGN KEY (class_id) REFERENCES tu_classes(id) ON DELETE CASCADE",
+      "table_name": "tu_sessions"
+    },
+    {
+      "conname": "tu_sessions_evaluation_id_fkey",
+      "definition": "FOREIGN KEY (evaluation_id) REFERENCES tu_evaluations(id) ON DELETE CASCADE",
+      "table_name": "tu_sessions"
+    },
+    {
+      "conname": "tu_students_class_id_fkey",
+      "definition": "FOREIGN KEY (class_id) REFERENCES tu_classes(id) ON DELETE CASCADE",
+      "table_name": "tu_students"
+    },
+    {
+      "conname": "tu_skills_evaluation_id_fkey",
+      "definition": "FOREIGN KEY (evaluation_id) REFERENCES tu_evaluations(id) ON DELETE CASCADE",
+      "table_name": "tu_skills"
+    },
+    {
+      "conname": "tu_classes_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_classes"
+    },
+    {
+      "conname": "tu_students_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_students"
+    },
+    {
+      "conname": "tu_evaluations_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_evaluations"
+    },
+    {
+      "conname": "tu_skills_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_skills"
+    },
+    {
+      "conname": "tu_sessions_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_sessions"
+    },
+    {
+      "conname": "tu_students_gender_check",
+      "definition": "CHECK ((gender = ANY (ARRAY['M'::text, 'F'::text])))",
+      "table_name": "tu_students"
+    },
+    {
+      "conname": "tu_session_events_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "table_name": "tu_session_events"
+    }
+  ],
+  "migration_table": "supabase_migrations.schema_migrations",
+  "policies": [
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_all",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_classes",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete classes",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_classes",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert classes",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_classes",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update classes",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_classes",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view classes",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_classes",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_all",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_evaluations",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete evaluations",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_evaluations",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert evaluations",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_evaluations",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update evaluations",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_evaluations",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view evaluations",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_evaluations",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_all",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": "true"
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_insert_session_events",
+      "qual": null,
+      "roles": [
+        "anon"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete session events",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert session events",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update session events",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view session events",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_session_events",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_insert_sessions",
+      "qual": null,
+      "roles": [
+        "anon"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": "true"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_select_sessions",
+      "qual": "true",
+      "roles": [
+        "anon"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": null
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_update_sessions",
+      "qual": "true",
+      "roles": [
+        "anon"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete sessions",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert sessions",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update sessions",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view sessions",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_sessions",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_all",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_skills",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete skills",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_skills",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert skills",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_skills",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update skills",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_skills",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view skills",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_skills",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "Enable all access for authenticated users on student_teams",
+      "qual": "true",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_student_teams",
+      "with_check": "true"
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "anon_all",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_students",
+      "with_check": "true"
+    },
+    {
+      "cmd": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can delete students",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_students",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can insert students",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_students",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can update students",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_students",
+      "with_check": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "tu-valu users can view students",
+      "qual": "(((auth.jwt() -> 'user_metadata'::text) ->> 'app_name'::text) = 'tu-valu'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_students",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "Enable all access for authenticated users on teams",
+      "qual": "true",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "tu_teams",
+      "with_check": "true"
+    }
+  ],
+  "triggers": null
+}

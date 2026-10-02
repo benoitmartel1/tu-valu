@@ -46,7 +46,7 @@ This branch implements the 24 open requests reviewed on September 25, 2026. It i
 ## Verification
 
 - Production build passes.
-- 21 automated assertions/subtests pass, including local PostgreSQL migration execution, RLS behavior, observation limits, daily absences, grading history, shared identity, group deletion, duplication, team assignment and attribution.
+- 22 automated assertions/subtests pass, including local PostgreSQL migration execution, RLS behavior, observation limits, daily absences, grading history, shared identity, group deletion, duplication, team assignment and attribution. The added hosted-schema regression test uses metadata captured on October 2, 2026 and synthetic records.
 - Browser checks use synthetic records and a mocked API, including an export of 1,205 observations. They cover scoring, failed saves, undo, limits, gallery, photo rendering, temporary removal, priority, birthdays, theme/display settings, student record edits, multi-score, activity duplication, archive/restore and CSV paste layout.
 - Chromium and WebKit are used at desktop and tablet dimensions. This is not a physical iPad test.
 
@@ -54,7 +54,11 @@ This branch implements the 24 open requests reviewed on September 25, 2026. It i
 
 The new migration is `supabase/migrations/20260926015325_issue_review_batch.sql`. It must be applied to a staging copy of the real database before this frontend is used there. It adds membership data and fields, preserves group history, and installs invoker functions and observation validation triggers.
 
-The repository does not include the original complete table-creation migration. Local database tests therefore reconstruct the baseline expected by the existing application. The public application key did not permit reading hosted schema metadata. Compatibility with the full hosted schema and existing constraints still needs staging verification; no production migration, repair, deployment, push or issue closure was performed.
+On October 2, 2026, authenticated Supabase CLI access allowed verification against the configured project named `dev`. Read-only queries confirmed the review migration is absent from migration history, the new columns and objects are absent, and existing skill scales have the required array shape. The hosted columns, defaults, nullability, constraints and policies were captured without student records, then recreated in local PGlite. Applying the complete migration and exercising its five public RPCs, observation limits, backfill and group-deletion history preservation passed. Existing hosted Tu-valu tables have no custom triggers. This is schema compatibility verification with synthetic data, not application of the migration to hosted data. No hosted migration, repair, deployment, push or issue closure was performed.
+
+The hosted project is shared with other applications; do not use a blanket migration push to reconcile its history with this repository. The reviewed migration should be applied deliberately on its own after deployment authorization. Its existing-row backfills still warrant backup and normal rollout monitoring.
+
+Security finding from the hosted schema: existing `anon_all` policies on classes, students, evaluations, skills and session events grant unrestricted access, and session policies also permit anonymous operations. Additional policies authorize through user-editable `user_metadata.app_name`. The review migration does not repair these pre-existing policies, and its membership policy inherits the broad parent-table visibility. Schema compatibility passing must not be interpreted as approval of the current access model. Restrict anonymous access and establish trusted application membership before considering the database secure.
 
 Existing observations that may have been assigned to the wrong group are not automatically rewritten: the correct historical group cannot safely be inferred from current membership alone. New observations use the student's actual selected membership.
 
