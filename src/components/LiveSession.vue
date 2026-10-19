@@ -38,7 +38,6 @@ import {
   observationClass,
   isSkillComplete,
   isStudentComplete,
-  roundBrightness,
   gradeSnapshot,
 } from "../lib/domain";
 import StudentAvatar from "./StudentAvatar.vue";
@@ -676,15 +675,12 @@ function hasUsedLevel(studentId, skillId, level) {
 }
 
 // ── Opacity helper ─────────────────────────────────────
-const studentOpacityMap = computed(() => {
-  const cohort = cohortStudents.value.map((s) => studentTotalCount(s.id));
-  return Object.fromEntries(
-    cohortStudents.value.map((s) => [
-      s.id,
-      roundBrightness(studentTotalCount(s.id), cohort),
-    ]),
-  );
-});
+const studentOpacityMap = computed(() =>
+  Object.fromEntries(cohortStudents.value.map((student) => [
+    student.id,
+    Math.max(0.18, 1 / (1 + studentTotalCount(student.id) * 0.25)),
+  ])),
+);
 
 function studentOpacity(studentId) {
   return studentOpacityMap.value[studentId] ?? 1;
@@ -1555,11 +1551,8 @@ defineExpose({
             :class="{ 'is-ghost': drag?.student?.id === student.id }"
             :data-student-id="student.id"
             :style="{
-              '--student-brightness': studentOpacity(student.id),
-              '--student-ink':
-                studentOpacity(student.id) < 1
-                  ? '#f0f6fc'
-                  : 'var(--text-light)',
+              '--student-opacity': studentOpacity(student.id),
+              '--student-ink': '#ffffff',
               outline: priorities[student.id]
                 ? `${priorities[student.id] + 1}px solid var(--priority-color)`
                 : 'none',
@@ -1572,7 +1565,7 @@ defineExpose({
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
                   : 'none',
-                background: 'var(--student-bg)',
+                background: 'var(--class-accent)',
               }"
             >
               <StudentAvatar v-if="preferences.showPhoto" :student="student" />
@@ -1611,7 +1604,7 @@ defineExpose({
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
                   : 'none',
-                background: 'var(--student-bg)',
+                background: 'var(--class-accent)',
               }"
             >
               <StudentAvatar v-if="preferences.showPhoto" :student="student" />
@@ -2656,7 +2649,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  filter: brightness(var(--student-brightness, 1));
+  filter: none;
 }
 .student-label {
   background: var(--student-bg);
@@ -2711,8 +2704,9 @@ textarea {
   background: var(--surface);
 }
 .zone-segment {
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
+  --zone-fill: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
+  color: color-mix(in srgb, var(--text-muted) 18%, var(--zone-fill));
+  background: var(--zone-fill);
 }
 .segment-hover {
   color: #ffffff;
@@ -2735,20 +2729,22 @@ textarea {
   min-height: 40px;
   font-size: 1.25rem;
 }
-.student-bubble {
+.student-bubble,
+.student-bubble-preview {
+  color: var(--text-light);
   filter: none;
   background: color-mix(
     in srgb,
-    var(--student-bg) calc(var(--student-brightness, 1) * 100%),
-    black
+    var(--class-accent) calc(var(--student-opacity, 1) * 100%),
+    transparent
   ) !important;
 }
 .student-label {
   background: transparent;
-  color: var(--student-ink, var(--text-light));
+  color: var(--student-ink, #ffffff);
 }
 .student-bubble :deep(.student-avatar) {
-  filter: brightness(var(--student-brightness, 1));
+  filter: none;
 }
 
 .fab {
