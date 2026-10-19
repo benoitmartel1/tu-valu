@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { distributeByAbility } from "../lib/domain";
 import { mutate } from "../lib/data";
 import { supabase } from "../supabase";
@@ -350,7 +350,7 @@ const isDraggingOverEmptySpace = ref(false);
 const dragGhost = ref(null);
 
 function onDragStart(e, student, fromTeamIndex) {
-  if (dragState.value) return; // only one drag at a time
+  if (dragState.value || e.isPrimary === false || e.button !== 0) return; // one primary pointer
   e.preventDefault();
 
   const rect = e.currentTarget.getBoundingClientRect();
@@ -364,12 +364,17 @@ function onDragStart(e, student, fromTeamIndex) {
   ghost.style.top = e.clientY - rect.height / 2 + "px";
   ghost.style.pointerEvents = "none";
   ghost.style.zIndex = "9999";
-  ghost.style.opacity = "0.8";
+  const sourceStyle = getComputedStyle(e.currentTarget);
+  ghost.style.backgroundColor = sourceStyle.backgroundColor;
+  ghost.style.color = sourceStyle.color;
+  ghost.style.font = sourceStyle.font;
+  ghost.style.opacity = "1";
   ghost.style.transform = "scale(1.1)";
   document.body.appendChild(ghost);
   dragGhost.value = ghost;
 
   dragState.value = {
+    pointerId: e.pointerId,
     student,
     fromTeamIndex,
     startX: e.clientX,
@@ -390,7 +395,7 @@ function onDragStart(e, student, fromTeamIndex) {
 }
 
 function onDragMove(e) {
-  if (!dragState.value) return;
+  if (!dragState.value || e.pointerId !== dragState.value.pointerId) return;
   e.preventDefault();
 
   dragState.value.currentX = e.clientX;
@@ -416,7 +421,10 @@ function onDragMove(e) {
   }
 }
 
-function onDragCancel() {
+onBeforeUnmount(() => onDragCancel());
+
+function onDragCancel(e) {
+  if (e && dragState.value && e.pointerId !== dragState.value.pointerId) return;
   document.body.style.touchAction = "";
   document.body.style.userSelect = "";
   document.removeEventListener("pointermove", onDragMove);
@@ -433,7 +441,10 @@ function onDragCancel() {
   isDraggingOverEmptySpace.value = false;
 }
 
-function onDragEnd() {
+function onDragEnd(e) {
+  if (!dragState.value || e.pointerId !== dragState.value.pointerId) return;
+  dragState.value.currentX = e.clientX;
+  dragState.value.currentY = e.clientY;
   document.body.style.touchAction = "";
   document.body.style.userSelect = "";
   document.removeEventListener("pointermove", onDragMove);
@@ -1243,5 +1254,14 @@ function getTeamColor(teamIndex) {
 .drag-ghost {
   background: var(--class-accent);
   color: #ffffff;
+}
+/* Safari must know a pill is draggable before the touch gesture begins. */
+.student-pill,
+.unassigned-student-pill {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 </style>

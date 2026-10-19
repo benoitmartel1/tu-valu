@@ -20,17 +20,17 @@
 :root[data-theme="light"] {
   color-scheme: light;
   --surface: #ffffff;
-  --surface-muted: #f0f3f6;
+  --surface-muted: #dce3eb;
   --border-color: #8c959f;
   --text-light: #1f2328;
   --text-muted: #59636e;
-  --court-blue: #edf0f4;
+  --court-blue: #e8ecf1;
   --bg-dark: #ffffff;
   --turf-green: #dafbe1;
   --track-red: #ffebe9;
-  --stadium-yellow: #f0f3f6;
-  --team-gray: #eaeef2;
-  --student-bg: #c9e4ff;
+  --stadium-yellow: #dce3eb;
+  --team-gray: #d2dae4;
+  --student-bg: #bfddfa;
   --priority-color: #9a6700;
   --accent: #2673dd;
   --danger: #b42318;
@@ -597,4 +597,31 @@ textarea {
 }
 :root .picker-screen--modal > .report-modal {
   --modal-accent: #e5b82e;
+}
+
+/* Selected group and activity edit actions use a bare white pen. */
+:root .picker-screen--modal .picker-item.selected .edit-class-btn-small {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: #ffffff;
+  opacity: 1;
+}
+
+/* Tab borders switch immediately so no intermediate dark edge flashes. */
+:root .top-bar .fab {
+  transition: none;
+  border-color: transparent;
+}
+:root .top-bar .fab.fab--modal-open,
+:root .top-bar .fab.fab--modal-report {
+  border-color: transparent;
+  border-bottom: none;
+}
+
+/* Every closed navigation tab uses the same neutral surface. */
+:root .top-bar .fab:not(.fab--modal-open):not(.fab--modal-report) {
+  background: var(--surface-muted);
+  border-color: transparent;
+  color: var(--text-light);
 }

@@ -93,7 +93,7 @@ async function archive() {
         </PopupSelect></label
       >
     </template>
-    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget">
+    <Teleport defer :to="actionsTarget || 'body'" :disabled="!actionsTarget">
       <div :class="actionsTarget ? 'record-header-actions' : 'feature-fields'">
         <button v-if="kind !== 'class'" :disabled="busy" @click="archive"
           :title="row.archived_at ? 'Restaurer' : 'Archiver'" :aria-label="row.archived_at ? 'Restaurer' : 'Archiver'">

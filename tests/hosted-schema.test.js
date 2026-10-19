@@ -48,6 +48,7 @@ test('migration and RPCs work against captured hosted columns, constraints and p
     const session = (await one('insert into tu_sessions(class_id,evaluation_id) values ($1,$2) returning id', [c, ev])).id;
     await db.query("insert into tu_session_events(student_id,skill_id,class_id,evaluation_id,session_id,level,user_id) values ($1,$2,$3,$4,$5,'2',auth.uid())", [student,skill,c,ev,session]);
     await db.exec(await readFile(new URL('../supabase/migrations/20260926015325_issue_review_batch.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/20261019143218_normalize_observation_scores.sql', import.meta.url), 'utf8'));
     assert.equal((await one('select sort_order from tu_evaluations')).sort_order, 0);
     assert.equal((await one('select count(*)::int n from tu_student_classes')).n, 1);
     assert.equal((await one('select observer_name from tu_session_events')).observer_name, 'Synthetic Teacher');

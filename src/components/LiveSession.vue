@@ -41,6 +41,7 @@ import {
   gradeSnapshot,
 } from "../lib/domain";
 import StudentAvatar from "./StudentAvatar.vue";
+import SpecialRosterPopup from "./popup/SpecialRosterPopup.vue";
 import Birthdays from "./popup/Birthdays.vue";
 import LoadingPopup from "./popup/LoadingPopup.vue";
 import { supabase } from "../supabase";
@@ -65,6 +66,7 @@ import EvalDetail from "./detail/EvalDetail.vue";
 import StudentDetail from "./detail/StudentDetail.vue";
 import SkillDetail from "./detail/SkillDetail.vue";
 import RangeInput from "./RangeInput.vue";
+import BonusStarZone from "./BonusStarZone.vue";
 import IconSelector from "./popup/IconSelector.vue";
 import Settings from "./popup/Settings.vue";
 import ClassModal from "./modal/ClassModal.vue";
@@ -132,8 +134,51 @@ const visibleStudents = computed(() =>
       !isStudentComplete(s.id, currentSkills.value, counts.value),
   ),
 );
-function restoreStudents() {
-  hiddenStudents.value = new Set();
+const specialRoster = ref(null);
+const specialRosterError = ref("");
+const specialRosterIcon = computed(() => ({ hidden: EyeOff, priority: Star, absent: HatGlasses })[specialRoster.value]);
+const specialRosterLabel = computed(() => ({ hidden: "Élèves retirés", priority: "Élèves prioritaires", absent: "Élèves absents" })[specialRoster.value]);
+const specialRosterStudents = computed(() => allStudents.value.filter((student) =>
+  specialRoster.value === "hidden" ? hiddenStudents.value.has(student.id)
+    : specialRoster.value === "priority" ? Boolean(priorities.value[student.id])
+      : absentStudents.value.has(student.id),
+));
+function openSpecialRoster(kind) {
+  if (drag.value) return;
+  specialRosterError.value = "";
+  specialRoster.value = kind;
+}
+async function removeFromSpecialRoster(id) {
+  if (savingEvent.value) return;
+  if (specialRoster.value === "hidden") {
+    const next = new Set(hiddenStudents.value);
+    next.delete(id);
+    hiddenStudents.value = next;
+  } else if (specialRoster.value === "priority") {
+    const next = { ...priorities.value };
+    delete next[id];
+    priorities.value = next;
+  } else {
+    savingEvent.value = true;
+    specialRosterError.value = "";
+    try {
+      const actions = actionHistory.value.filter((action) => action.absent && action.studentId === id);
+      const ids = actions.flatMap((action) => action.eventIds || []);
+      if (ids.length) {
+        const { error } = await supabase.from("tu_session_events").delete().in("id", ids);
+        if (error) throw error;
+      }
+      actionHistory.value = actionHistory.value.filter((action) => !actions.includes(action));
+      const next = new Set(absentStudents.value);
+      next.delete(id);
+      absentStudents.value = next;
+      await startSession();
+    } catch (error) {
+      specialRosterError.value = error.message;
+    } finally {
+      savingEvent.value = false;
+    }
+  }
 }
 let countRequest = 0;
 
@@ -142,6 +187,7 @@ const classes = ref([]);
 const evaluations = ref([]);
 const selectedClassId = ref(null);
 const dataLoading = ref(false);
+const hasLoadedData = ref(false);
 const countLoading = ref(false);
 const loading = computed(() => dataLoading.value || countLoading.value);
 let dataRequest = 0;
@@ -303,6 +349,22 @@ const currentStudents = computed(() => {
   });
 });
 
+watch(
+  () => [preferences.showPhoto, currentStudents.value],
+  ([enabled, selected]) => {
+    if (!enabled || !allStudents.value.length) return;
+    const withPhoto = selected.filter((student) => Boolean(student.photo_url?.trim())).length;
+    console.info("[Selected student photos]", {
+      selected: selected.length,
+      withPhoto,
+      withoutPhoto: selected.length - withPhoto,
+    });
+    if (selected.length && !withPhoto) {
+      console.warn("[Selected student photos] None of the selected students has a saved photo. Initials are expected; photo requests are skipped.");
+    }
+  },
+  { flush: "post" },
+);
 // Current evaluations/skills to display
 const currentSkills = computed(() => {
   // Simply return all skills that are in checkedSkillIds
@@ -367,6 +429,7 @@ async function loadAllData() {
     }));
     await loadTeams();
     if (hasEvalSelection.value) await startSession();
+    hasLoadedData.value = true;
   } catch (error) {
     if (request === dataRequest) saveError.value = error.message;
   } finally {
@@ -448,7 +511,9 @@ function toggleTeamsActive() {
 const drag = ref(null); // { student, startX, startY, currentX, currentY, offsetX, offsetY, width, height }
 const hoveredSkillId = ref(null);
 const dropFlash = ref(null); // skillId that just received a drop
+const hoveredCriterion = ref(null);
 const hoveredLevel = ref(null); // level label being hovered within a zone
+const hoveredSpecial = ref(null);
 const hoveredAbsent = ref(false); // whether drag is over the absent zone
 
 // ── Students row filter state ─────────────────────────
@@ -662,6 +727,15 @@ function getSkillScale(skill) {
   return ["1", "2", "3", "4", "5"];
 }
 
+// Categories have no ordered maximum. Letter scales run from low to high.
+function isMaximumLevel(skill, level) {
+  if (skill.grading_mode === "category") return false;
+  const scale = getSkillScale(skill);
+  if (skill.grading_mode === "letter")
+    return String(level) === String(scale[scale.length - 1]);
+  const values = scale.map(Number);
+  return values.every(Number.isFinite) && Number(level) === Math.max(...values);
+}
 // Calculate grid columns for zone segments - cap at ~12 per row for wrapping
 function getZoneGridColumns(skill) {
   const scaleLength = getSkillScale(skill).length;
@@ -699,14 +773,18 @@ function onDragMove(e) {
   const zone = el?.closest("[data-skill-id]");
 
   hoveredSkillId.value = zone ? zone.dataset.skillId : null;
+  hoveredCriterion.value = el?.closest("[data-criterion]")?.dataset.criterion || null;
   const seg = el?.closest("[data-level]");
-  hoveredLevel.value = seg ? seg.dataset.level : null;
+  hoveredLevel.value = el?.closest("[data-bonus-star]") ? null : seg ? seg.dataset.level : null;
   console.log(
     hoveredLevel.value
       ? `Hovering level: ${hoveredLevel.value}`
       : "Not hovering over a level segment",
   );
   hoveredAbsent.value = !!el?.closest("[data-absent-zone]");
+  hoveredSpecial.value = el?.closest("[data-hide-zone]") ? "hidden"
+    : el?.closest("[data-priority-zone]") ? "priority"
+      : hoveredAbsent.value ? "absent" : null;
 }
 
 function onDragCancel() {
@@ -718,7 +796,9 @@ function onDragCancel() {
   drag.value = null;
   hoveredSkillId.value = null;
   hoveredLevel.value = null;
+  hoveredCriterion.value = null;
   hoveredAbsent.value = false;
+  hoveredSpecial.value = null;
 }
 
 async function markStudentAbsent(student) {
@@ -769,7 +849,7 @@ async function onDragEnd() {
   const skillId = hoveredSkillId.value,
     level = hoveredLevel.value;
   onDragCancel();
-  if (!active || savingEvent.value) return;
+  if (!active || savingEvent.value || target?.closest("[data-bonus-star]")) return;
   const student = active.student;
   if (target?.closest("[data-priority-zone]")) {
     priorities.value = {
@@ -796,10 +876,7 @@ async function onDragEnd() {
         "Le nombre maximal de traces est atteint pour cette habileté.",
       );
     let comment = null;
-    if (skill.grading_mode === "category") {
-      comment = window.prompt("Commentaire (facultatif)", "");
-      if (comment === null) return;
-    }
+
     const { data, error } = await supabase
       .from("tu_session_events")
       .insert({
@@ -853,7 +930,12 @@ function onDragStart(e, student) {
   e.preventDefault();
 
   const rect = e.currentTarget.getBoundingClientRect();
+  const sourcePill = e.currentTarget.querySelector(".student-bubble") || e.currentTarget;
+  const sourceStyle = getComputedStyle(sourcePill);
+  const textStyle = getComputedStyle(sourcePill.querySelector(".student-label") || sourcePill);
   drag.value = {
+    backgroundColor: sourceStyle.backgroundColor,
+    color: textStyle.color,
     student,
     startX: e.clientX,
     startY: e.clientY,
@@ -912,6 +994,9 @@ const cloneStyle = computed(() => {
     top: drag.value.currentY - drag.value.offsetY + "px",
     width: drag.value.width + "px",
     height: drag.value.height + "px",
+    backgroundColor: drag.value.backgroundColor,
+    color: drag.value.color,
+    opacity: 1,
     zIndex: 200,
     pointerEvents: "none",
   };
@@ -1146,6 +1231,21 @@ defineExpose({
   selectedClass,
   hasEvalSelection,
 });
+const liveScreenElement = ref(null);
+const specialZonesTop = ref(36);
+watch([liveScreenElement, currentSkills], ([screen], _old, onCleanup) => {
+  if (!screen) return;
+  const alignSpecialZones = () => {
+    const boxes = screen.querySelector(".zone-segments, .observation-zone, .rubric-criteria");
+    if (boxes) specialZonesTop.value = Math.max(0, boxes.getBoundingClientRect().top - screen.getBoundingClientRect().top);
+  };
+  const observer = new ResizeObserver(alignSpecialZones);
+  observer.observe(screen);
+  const header = screen.querySelector(".zone-header");
+  if (header) observer.observe(header);
+  alignSpecialZones();
+  onCleanup(() => observer.disconnect());
+}, { flush: "post" });
 </script>
 
 <template>
@@ -1284,12 +1384,23 @@ defineExpose({
       {{ saveError }} <button @click="loadAllData">Réessayer</button>
       <button @click="saveError = ''">Fermer</button>
     </div>
-    <div v-if="savingEvent" role="status">Enregistrement…</div>
-    <LoadingPopup v-if="loading" />
+    
+    <LoadingPopup v-if="dataLoading && !hasLoadedData" />
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
     <div class="main-content" @click="userMenuOpen = false">
       <!-- LIVE SCREEN (always visible) -->
-      <div class="live-screen">
+      <div ref="liveScreenElement" class="live-screen" :class="{ 'live-screen--special-zones': currentSkills.length && currentStudents.length }">
+        <aside v-if="currentSkills.length && currentStudents.length" class="special-eval-zones" :style="{ paddingTop: specialZonesTop + 'px' }" aria-label="Zones spéciales">
+        <button type="button" class="special-drop session-drop" :class="{ 'special-drop--hover': hoveredSpecial === 'hidden' }" @pointerenter="hoveredSpecial = 'hidden'" @pointerleave="hoveredSpecial = null" data-hide-zone
+          title="Élèves retirés" aria-label="Élèves retirés" :aria-expanded="specialRoster === 'hidden'"
+          @click="openSpecialRoster('hidden')"><EyeOff :size="22" /></button>
+        <button type="button" class="special-drop session-drop" :class="{ 'special-drop--hover': hoveredSpecial === 'priority' }" @pointerenter="hoveredSpecial = 'priority'" @pointerleave="hoveredSpecial = null" data-priority-zone
+          title="Élèves prioritaires" aria-label="Élèves prioritaires" :aria-expanded="specialRoster === 'priority'"
+          @click="openSpecialRoster('priority')"><Star :size="22" /></button>
+        <button type="button" class="special-drop session-drop" :class="{ 'special-drop--hover': hoveredSpecial === 'absent' }" @pointerenter="hoveredSpecial = 'absent'" @pointerleave="hoveredSpecial = null" data-absent-zone
+          title="Élèves absents" aria-label="Élèves absents" :aria-expanded="specialRoster === 'absent'"
+          @click="openSpecialRoster('absent')"><HatGlasses :size="22" /></button>
+        </aside>
         <!-- Drop zones -->
         <div
           v-if="currentSkills.length > 0 && currentStudents.length > 0"
@@ -1337,7 +1448,20 @@ defineExpose({
               </span>
             </div>
 
-            <div v-if="skill.grading_mode === 'rubric'" class="rubric-criteria">
+            <div v-if="skill.grading_mode === 'category'" class="zone-segments observation-zones"
+              :style="{ gridTemplateColumns: getZoneGridColumns(skill) }">
+              <div v-for="category in getSkillScale(skill)" :key="category" class="observation-zone"
+                :class="{ 'observation-zone-hover': drag && hoveredSkillId === String(skill.id) && hoveredCriterion === String(category) }">
+                <span class="observation-label">{{ category }}</span>
+                <div v-for="sign in ['+1', '-1']" :key="sign" class="observation-half"
+                  :class="{ 'observation-positive': sign === '+1', 'observation-negative': sign === '-1',
+                    'observation-half-hover': drag && hoveredSkillId === String(skill.id) && hoveredCriterion === String(category) && hoveredLevel === sign }"
+                  :data-skill-id="skill.id" :data-level="sign" :data-criterion="category">
+                  <span>{{ sign === '+1' ? '+' : '−' }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="skill.grading_mode === 'rubric'" class="rubric-criteria">
               <div
                 v-for="criterion in skill.criteria"
                 :key="criterion"
@@ -1357,6 +1481,7 @@ defineExpose({
                       hoveredLevel === String(value),
                   }"
                 >
+                  <BonusStarZone v-if="isMaximumLevel(skill, value)" />
                   {{ Number(value) > 0 ? "+" : "" }}{{ value }}
                 </div>
               </div>
@@ -1383,6 +1508,7 @@ defineExpose({
                 :data-skill-id="skill.id"
                 :data-level="level"
               >
+                <BonusStarZone v-if="isMaximumLevel(skill, level)" />
                 {{ level }}
                 <span
                   v-if="
@@ -1510,35 +1636,6 @@ defineExpose({
           <Funnel :size="16" />
         </button>
 
-        <button
-          v-if="hiddenStudents.size"
-          @click="restoreStudents"
-          title="Rétablir les élèves retirés"
-        >
-          Rétablir ({{ hiddenStudents.size }})
-        </button>
-        <div
-          class="session-drop"
-          data-hide-zone
-          title="Retirer temporairement, sans trace"
-        >
-          <EyeOff :size="22" /><small>Retirer</small>
-        </div>
-        <div
-          class="session-drop"
-          data-priority-zone
-          title="Priorité : jusqu’à 3 niveaux"
-        >
-          <Star :size="22" /><small>Priorité</small>
-        </div>
-        <div
-          class="absent-zone"
-          :class="{ 'absent-zone--hover': hoveredAbsent }"
-          data-absent-zone
-          title="Consigner une absence"
-        >
-          <HatGlasses :size="22" /><small>Absence</small>
-        </div>
       </div>
 
       <!-- Middle zone: student bubbles -->
@@ -1561,6 +1658,7 @@ defineExpose({
           >
             <div
               class="student-bubble"
+              :class="{ 'student-bubble--photo': preferences.showPhoto }"
               :style="{
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
@@ -1600,6 +1698,7 @@ defineExpose({
           >
             <div
               class="student-bubble-preview"
+              :class="{ 'student-bubble--photo': preferences.showPhoto }"
               :style="{
                 border: teamsActive
                   ? `2px solid ${getStudentTeamColor(student.id) || '#457b9d'}`
@@ -1636,6 +1735,9 @@ defineExpose({
     </div>
   </div>
 
+  <SpecialRosterPopup v-if="specialRoster" :students="specialRosterStudents" :icon="specialRosterIcon"
+    :label="specialRosterLabel" :busy="savingEvent" :error="specialRosterError"
+    @close="specialRoster = null" @remove="removeFromSpecialRoster" />
   <Birthdays
     v-if="showBirthdays"
     :students="allStudents"
@@ -1677,6 +1779,7 @@ textarea {
 
 /* ── App root ─────────────────────────────────────── */
 .app-root {
+  --drop-highlight: #e67e22;
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -2475,7 +2578,7 @@ textarea {
   flex: 1;
   width: 100%;
   max-width: 100%;
-  gap: 4px;
+  gap: 1px;
   /* padding: 12px; */
   padding-top: 0;
   /* border-radius: 8px; */
@@ -2635,7 +2738,7 @@ textarea {
 }
 .students-row {
   max-height: none;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
 .students-row-center {
   min-width: 0;
@@ -2701,7 +2804,7 @@ textarea {
   justify-content: flex-start;
 }
 .drop-zone {
-  background: var(--surface);
+  background: transparent;
 }
 .zone-segment {
   --zone-fill: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
@@ -2710,7 +2813,7 @@ textarea {
 }
 .segment-hover {
   color: #ffffff;
-  background: var(--accent);
+  background: var(--drop-highlight);
 }
 .rubric-criteria {
   display: grid;
@@ -2805,5 +2908,87 @@ textarea {
 .rubric-criteria { min-height: 0; grid-auto-rows: minmax(0, 1fr); }
 .rubric-column { min-height: 0; min-width: 0; }
 .rubric-column .zone-segment { min-height: 0; flex: 1 1 0; font-size: clamp(0.65rem, 1.8vh, 1.25rem); }
+.student-bubble--photo {
+  height: 42px;
+  padding-block: 0;
+  padding-left: 0;
+  overflow: hidden;
+}
+.student-bubble--photo :deep(.student-avatar) {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 0;
+}
+.student-bubble--photo :deep(.student-avatar img) {
+  border-radius: 0;
+  object-position: center 38%;
+  transform: scale(2.112);
+}
+/* Observation categories reveal two signed drop areas while a student hovers. */
+.observation-zone { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-muted); }
+.observation-label {
+  position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center;
+  padding: 0.3rem; color: var(--text-light); text-align: center; pointer-events: none;
+  font-weight: 700; font-size: clamp(0.75rem, 2vw, 1.5rem); transition: opacity 120ms ease;
+}
+.observation-zone-hover .observation-label { opacity: 0.1; }
+.observation-half { position: absolute; left: 0; right: 0; height: 50%; display: flex; justify-content: center; padding: 4px; box-sizing: border-box; color: var(--text-muted); }
+.observation-positive { top: 0; align-items: flex-start; }
+.observation-negative { bottom: 0; align-items: flex-end; }
+.observation-half > span { pointer-events: none; font-size: 1.2rem; line-height: 1; }
+.observation-zone-hover .observation-positive { background: color-mix(in srgb, #55b880 12%, transparent); border-bottom: 1px solid var(--border-color); }
+.observation-zone-hover .observation-negative { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.observation-zone-hover .observation-half { align-items: center; }
+.observation-zone-hover .observation-half > span { font-size: clamp(1rem, 5cqh, 2.5rem); }
+.observation-half.observation-half-hover { background: var(--drop-highlight); color: white; }
+@media (prefers-reduced-motion: reduce) { .observation-label { transition: none; } }
+.students-row-left { align-self: stretch; justify-content: flex-start; gap: 0.5rem; }
+.students-row-left > .special-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+}
+.live-screen--special-zones {
+  padding-left: 88px;
+  box-sizing: border-box;
+}
+.special-eval-zones {
+  position: absolute;
+  inset: 0 auto 8px 8px;
+  width: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+.special-eval-zones > .special-drop {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.special-eval-zones > .special-drop--hover {
+  background: var(--drop-highlight);
+  color: #ffffff;
+}
 </style>
 ;

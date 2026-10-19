@@ -152,7 +152,9 @@ export async function getStudentPhotoPresignedUrl(photoUrl) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ photo_url: photoUrl }),
+      body: JSON.stringify(/^[a-z][a-z0-9+.-]*:\/\//i.test(photoUrl)
+        ? { photo_url: photoUrl }
+        : { key: photoUrl }),
     });
 
     if (!response.ok) {

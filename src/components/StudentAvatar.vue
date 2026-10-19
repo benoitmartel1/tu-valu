@@ -1,26 +1,21 @@
 <script setup>
 import { ref, watch } from "vue";
-import { getStudentPhotoPresignedUrl } from "../supabase";
+import { loadStudentPhoto, peekStudentPhoto } from "../stores/studentPhotos";
 import { fullName } from "../lib/domain";
 const props = defineProps({ student: { type: Object, required: true } });
 const url = ref(null);
-const cache = new Map();
 let request = 0;
 watch(
   () => props.student.photo_url,
   async (path) => {
     const current = ++request;
-    url.value = null;
+    const cached = path && peekStudentPhoto(path);
+    url.value = cached || null;
+    if (cached) return;
     if (!path) return;
     try {
-      const cached = cache.get(path);
-      const result =
-        cached && cached.expires > Date.now()
-          ? cached.url
-          : (await getStudentPhotoPresignedUrl(path)).presignedUrl;
+      const result = await loadStudentPhoto(path);
       if (current === request) url.value = result;
-      if (result)
-        cache.set(path, { url: result, expires: Date.now() + 240000 });
     } catch {
       /* Keep initials on network failure. */
     }
@@ -35,7 +30,7 @@ watch(
       :src="url"
       :alt="fullName(student)"
       draggable="false"
-      @error="url = null"
+      @error="url = null; console.warn('[Student photos] Image download failed after signing.')"
     />
     <span v-else>{{
       (student.firstname?.[0] || "") + (student.lastname?.[0] || "")
@@ -59,5 +54,7 @@ watch(
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 38%;
+  border-radius: 0;
 }
 </style>

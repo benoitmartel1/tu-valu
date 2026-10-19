@@ -1,4 +1,7 @@
 <script setup>
+import { computed } from "vue";
+import { UserRound } from "@lucide/vue";
+import { studentName } from "../../lib/domain";
 import { preferences } from "../../stores/preferences";
 import Popup from "./Popup.vue";
 
@@ -25,6 +28,18 @@ const emit = defineEmits([
   "update:activeTeamId",
 ]);
 
+const displayOptions = [
+  { key: "individual", label: "Choix individuels" },
+  { key: "showPhoto", label: "Photos des élèves" },
+  { key: "showFirstname", label: "Prénom", name: true },
+  { key: "showLastname", label: "Nom", name: true },
+  { key: "showCustomName", label: "Surnom", name: true },
+];
+const previewStudent = {
+  firstname: "Alex", lastname: "M", custom_name: "Alexou",
+  name_display_prefs: { showFirstname: true, showLastname: false, showCustomName: false },
+};
+const previewName = computed(() => studentName(previewStudent, preferences));
 function getTeamColor(teamId) {
   // This will be passed as a prop or we can use a simpler approach
   const teamColors = [
@@ -50,33 +65,25 @@ function getTeamColor(teamId) {
     <div class="settings-content">
       <section class="feature-fields">
         <h3>Affichage global</h3>
-        <label
-          ><input type="checkbox" v-model="preferences.showPhoto" /> Photos des
-          élèves</label
-        >
-        <label
-          ><input type="checkbox" v-model="preferences.individual" /> Respecter
-          les choix individuels</label
-        >
-        <template v-if="!preferences.individual"
-          ><label
-            v-for="option in [
-              { key: 'showFirstname', label: 'Prénom' },
-              { key: 'showLastname', label: 'Nom' },
-              { key: 'showInitial', label: 'Initiale du nom' },
-              { key: 'showCustomName', label: 'Surnom' },
-            ]"
-            :key="option.key"
-            ><input type="checkbox" v-model="preferences[option.key]" />
-            {{ option.label }}</label
-          ></template
-        >
-        <label
-          >Thème<PopupSelect v-model="preferences.theme">
-            <option value="dark">Sombre</option>
-            <option value="light">Clair</option>
-          </PopupSelect></label
-        >
+        <div class="display-toggles" role="group" aria-label="Affichage global">
+          <button v-for="option in displayOptions" :key="option.key" type="button"
+            class="display-toggle" :aria-pressed="preferences[option.key]"
+            :disabled="option.name && preferences.individual"
+            @click="preferences[option.key] = !preferences[option.key]">
+            {{ option.label }}
+          </button>
+        </div>
+        <div class="display-preview" aria-live="polite">
+          <span class="display-preview-label">Aperçu</span>
+          <div class="student-pill display-preview-pill">
+            <span v-if="preferences.showPhoto" class="display-preview-avatar" aria-label="Exemple de photo">
+              <UserRound :size="24" aria-hidden="true" />
+            </span>
+            <span v-if="previewName">{{ previewName }}</span>
+            <span v-else-if="!preferences.showPhoto">AM</span>
+          </div>
+          <small v-if="preferences.individual">Désactivez « Choix individuels » pour personnaliser votre affichage.</small>
+        </div>
         <button @click="$emit('reset-priorities')">
           Réinitialiser les priorités
         </button>
@@ -343,4 +350,18 @@ function getTeamColor(teamId) {
   border-color: #ffc107;
   color: #856404;
 }
+</style>
+
+<style scoped>
+.display-toggles { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.feature-fields .display-toggle {
+  border: none; border-radius: 24px; padding: 0.65rem 0.9rem;
+  background: var(--surface-muted); color: var(--text-light);
+}
+.feature-fields .display-toggle[aria-pressed="true"] { background: var(--class-accent, #5599e0); color: #fff; }
+.display-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 0.75rem 0; }
+.display-preview-label { color: var(--text-muted); font-size: 0.85rem; }
+.display-preview-pill { width: fit-content; min-height: 40px; gap: 0.5rem; background: var(--student-bg); color: var(--text-light); cursor: default; }
+.display-preview-avatar { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-muted); color: var(--text-light); }
+.display-preview small { flex-basis: 100%; }
 </style>

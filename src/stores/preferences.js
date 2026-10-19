@@ -16,6 +16,9 @@ try {
 } catch {
   /* Storage may be unavailable. */
 }
+// Fold the former surname-initial toggle into the remaining surname option.
+if (saved.showInitial) saved.showLastname = true;
+saved.showInitial = false;
 export const preferences = reactive({ ...defaults, ...saved });
 watch(
   preferences,

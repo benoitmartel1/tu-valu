@@ -150,7 +150,6 @@ function assignTeam(event) {
 </script>
 <template>
   <fieldset class="feature-fields" v-if="student" :disabled="busy" :id="`student-panel-${section}`" role="tabpanel" :aria-labelledby="`student-tab-${section}`">
-    <legend>{{ section === "teams" ? "Groupes et équipes" : "Fiche permanente" }}</legend>
     <template v-if="section === 'records'">
     <label
       >N° de fiche<input v-model="student.record_number" @change="save"
@@ -165,12 +164,18 @@ function assignTeam(event) {
         @change="save"
     /></label>
     </template>
-    <label v-if="section === 'teams'"
-      >Niveau d’habileté<PopupSelect v-model="student.ability_level" @change="save">
-        <option :value="null">Non évalué</option>
-        <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
-      </PopupSelect></label
-    >
+    <div v-if="section === 'teams'" class="ability-picker" role="group" aria-label="Niveau d’habileté">
+      <span>Niveau d’habileté</span>
+      <div class="ability-levels">
+        <button v-for="n in 5" :key="n" type="button"
+          :aria-label="`Niveau ${n}`"
+          :aria-pressed="Number(student.ability_level) === n"
+          :class="{ selected: Number(student.ability_level) === n }"
+          @click="student.ability_level = Number(student.ability_level) === n ? null : n; save()">
+          {{ n }}
+        </button>
+      </div>
+    </div>
     <div v-for="membership in memberships" :key="membership.class_id">
       {{ classes.find((c) => c.id === membership.class_id)?.name }}
       {{ classes.find((c) => c.id === membership.class_id)?.school_year }}
@@ -225,3 +230,25 @@ function assignTeam(event) {
     <p v-if="error" role="alert">{{ error }}</p>
   </fieldset>
 </template>
+
+<style scoped>
+.ability-picker { display: flex; flex-direction: column; gap: 0.5rem; }
+.ability-levels { display: flex; justify-content: space-between; gap: 0.5rem; }
+.ability-levels button {
+  flex: 0 1 44px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  color: var(--text-light);
+  font: inherit;
+  font-weight: 700;
+}
+.ability-levels button.selected {
+  background: var(--class-accent);
+  color: #ffffff;
+}
+</style>

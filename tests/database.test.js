@@ -37,6 +37,7 @@ test("migration, shared identity, limits, history, attribution, duplication, tea
     "utf8",
   );
   await db.exec(sql);
+  await db.exec(await readFile(new URL("../supabase/migrations/20261019143218_normalize_observation_scores.sql", import.meta.url), "utf8"));
   const one = async (query, args = []) => (await db.query(query, args)).rows[0];
   const s = "00000000-0000-4000-8000-000000000003",
     c = "00000000-0000-4000-8000-000000000001",
@@ -89,6 +90,7 @@ test("migration, shared identity, limits, history, attribution, duplication, tea
       const first = (await insert("2", c2)).rows[0];
       assert.equal(first.evaluation_id, ev);
       assert.equal(first.grading_snapshot.mode, "numeric");
+      assert.equal(Number(first.normalized_score), 4.5);
       await assert.rejects(insert("3"), /maximal/);
       await db.query("delete from tu_session_events where id=$1", [first.id]);
       await insert("3");

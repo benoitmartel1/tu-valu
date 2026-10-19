@@ -100,7 +100,7 @@ async function deleteEval() {
 
 <template>
   <div class="eval-detail">
-    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget">
+    <Teleport defer :to="actionsTarget || 'body'" :disabled="!actionsTarget">
           <button
             v-if="!isNewEval"
             class="btn-icon btn-icon--delete-eval"

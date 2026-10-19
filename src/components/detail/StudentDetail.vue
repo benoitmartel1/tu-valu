@@ -1,10 +1,12 @@
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import StudentFields from "./StudentFields.vue";
-import { Trash2, User, IdCard, Component } from "@lucide/vue";
-import { supabase, getStudentPhotoPresignedUrl } from "../../supabase";
+import { Trash2, User, IdCard, Component, ChevronRight, ChevronLeft } from "@lucide/vue";
+import { supabase } from "../../supabase";
+import { loadStudentPhoto as loadCachedStudentPhoto, peekStudentPhoto } from "../../stores/studentPhotos";
 
 const props = defineProps({
+  activeSection: { type: String, default: "name" },
   studentId: { type: [String, Number], default: null },
   studentData: { type: Object, default: null },
   allStudents: { type: Array, required: true },
@@ -13,9 +15,20 @@ const props = defineProps({
   hasEvalSelection: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "deleted", "data-changed"]);
+const emit = defineEmits(["close", "deleted", "data-changed", "next-student", "previous-student", "update:activeSection"]);
 
-const activeTab = ref("name");
+const activeTab = computed({
+  get: () => props.activeSection,
+  set: value => emit("update:activeSection", value),
+});
+const previousStudent = computed(() => {
+  const index = props.students.findIndex(student => student.id === props.studentId);
+  return index > 0 ? props.students[index - 1] : null;
+});
+const nextStudent = computed(() => {
+  const index = props.students.findIndex(student => student.id === props.studentId);
+  return index < 0 ? null : props.students[index + 1] || null;
+});
 const detailTabs = [
   { id: "name", label: "Identité", icon: User },
   { id: "records", label: "Identifiants", icon: IdCard },
@@ -34,9 +47,18 @@ const studentPhotoUrl = ref(null);
 const studentPhotoLoaded = ref(false);
 const studentClassName = ref("");
 let photoUrlRequest = 0;
+let displayedPhotoPath = null;
 
 async function loadStudentPhoto(photoUrl) {
+  if (photoUrl && displayedPhotoPath === photoUrl && studentPhotoUrl.value) return;
   const requestId = ++photoUrlRequest;
+  displayedPhotoPath = photoUrl;
+  const cached = photoUrl && peekStudentPhoto(photoUrl);
+  if (cached) {
+    studentPhotoUrl.value = cached;
+    studentPhotoLoaded.value = true;
+    return;
+  }
   studentPhotoLoaded.value = false;
   studentPhotoUrl.value = null;
   if (!photoUrl) {
@@ -44,7 +66,7 @@ async function loadStudentPhoto(photoUrl) {
     return;
   }
 
-  const { presignedUrl } = await getStudentPhotoPresignedUrl(photoUrl);
+  const presignedUrl = await loadCachedStudentPhoto(photoUrl).catch(() => null);
   if (requestId === photoUrlRequest) {
     studentPhotoUrl.value = presignedUrl;
   }
@@ -82,7 +104,7 @@ watch(
       .eq("id", id)
       .single();
 
-    if (data) {
+    if (data && id === props.studentId) {
       studentDetailEditing.value = { ...data };
       loadStudentPhoto(data.photo_url);
 
@@ -197,7 +219,8 @@ async function deleteStudent() {
 </script>
 
 <template>
-  <div class="student-detail-column">
+  <div class="student-detail-column student-detail-with-next">
+    <div class="student-detail-scroll">
       <!-- Photo placeholder -->
       <div v-if="studentDetailEditing" class="student-detail-photo-group">
         <div class="student-detail-photo">
@@ -353,11 +376,29 @@ async function deleteStudent() {
     </div>
     <StudentFields v-if="studentDetailEditing" v-show="activeTab !== 'name'"
       :key="studentId" :id="studentId" :section="activeTab" @changed="emit('data-changed')" />
-
+    </div>
+    <footer class="student-detail-footer" aria-label="Navigation des élèves">
+      <button type="button" class="next-student-btn" :disabled="!previousStudent"
+        @click="emit('previous-student', previousStudent.id)">
+        <ChevronLeft :size="20" aria-hidden="true" /> Précédent
+      </button>
+      <button type="button" class="next-student-btn" :disabled="!nextStudent"
+        @click="emit('next-student', nextStudent.id)">
+        Prochain <ChevronRight :size="20" aria-hidden="true" />
+      </button>
+    </footer>
   </div>
 </template>
 
 <style scoped>
+.student-detail-with-next { height: 100%; min-height: 0; }
+.student-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.student-detail-footer { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; flex-shrink: 0; margin-top: auto; padding: 0.75rem 0 0.25rem; background: var(--surface); }
+.next-student-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  border: none; border-radius: 24px; padding: 0.6rem 0.8rem;
+  background: var(--surface-muted); color: var(--text-light); font: inherit;
+}
 .student-detail-tabs { display: flex; justify-content: space-around; width: 100%; gap: 0.35rem; margin: 0.75rem 0 1rem; flex-shrink: 0; }
 .student-detail-tab {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;

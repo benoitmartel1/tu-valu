@@ -1,4 +1,5 @@
 <script setup>
+import { vGlideSelect } from "../../lib/glideSelect";
 import { ref, computed, watch } from "vue";
 import {
   ChevronUp,
@@ -36,6 +37,7 @@ const emit = defineEmits([
 // ── Internal state ──────────────────────────────────────
 const editingEvalId = ref(null);
 const skillDetailId = ref(null);
+const skillInitialTab = ref("scale");
 const search = ref("");
 const termPickerOpen = ref(false);
 const normalizeSearch = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
@@ -220,6 +222,7 @@ async function addSkill(evalId) {
   }
 
   // Select the new skill to show details immediately
+  skillInitialTab.value = "info";
   skillDetailId.value = data.id;
 
   // Notify parent to reload data
@@ -352,6 +355,7 @@ function onSkillDeleted(id) {
                           checkedEvalIds.has(ev.id) ||
                           evalHasSelectedSkills(ev.id),
                       }"
+                      v-glide-select="{ group: 'activities', checked: checkedEvalIds.has(ev.id), toggle: () => handleEvalCheck(ev) }"
                       @click.stop="handleEvalCheck(ev)"
                     >
                       <Check
@@ -402,7 +406,7 @@ function onSkillDeleted(id) {
                         <button
                           class="picker-item student-item"
                           :class="{ selected: skillDetailId === skill.id }"
-                          @click="skillDetailId = skill.id"
+                          @click="skillInitialTab = 'scale'; skillDetailId = skill.id"
                         >
                           <span>{{ skill.name }}</span>
                           <span
@@ -410,6 +414,7 @@ function onSkillDeleted(id) {
                             :class="{
                               checked: checkedSkillIds.has(skill.id),
                             }"
+                            v-glide-select="{ group: 'skills', checked: checkedSkillIds.has(skill.id), toggle: () => handleSkillCheck(skill.id) }"
                             @click.stop="handleSkillCheck(skill.id)"
                           >
                             <Check
@@ -440,11 +445,11 @@ function onSkillDeleted(id) {
                 v-if="skillDetailId !== null"
                 :key="skillDetailId"
                 :skill-id="skillDetailId"
+                :initial-tab="skillInitialTab"
+                @navigate-skill="skillInitialTab = $event.tab; skillDetailId = $event.id"
                 :skill-data="skills.find((s) => s.id === skillDetailId)"
                 :skills="skills"
-                :editing-skills="
-                  skills.filter((s) => s.evaluation_id === selectedEvalId)
-                "
+                :editing-skills="getSkillsForEval(selectedEvalId)"
                 :has-student-selection="false"
                 :has-eval-selection="
                   checkedEvalIds.size > 0 || checkedSkillIds.size > 0

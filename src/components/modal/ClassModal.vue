@@ -1,4 +1,5 @@
 <script setup>
+import { vGlideSelect } from "../../lib/glideSelect";
 import { ref, watch, computed } from "vue";
 import { ChevronUp, ChevronDown, Upload, Plus, Check, PenIcon, X, LayoutGrid, List } from "@lucide/vue";
 import StudentAvatar from "../StudentAvatar.vue";
@@ -7,6 +8,7 @@ import { useUserFilter } from "../../stores/userFilters";
 import { belongsTo, fullName } from "../../lib/domain";
 import { mutate } from "../../lib/data";
 import { supabase } from "../../supabase";
+import { createProtectedStudents } from "../../stores/protectedStudents";
 import Popup from "../popup/Popup.vue";
 import ClassDetail from "../detail/ClassDetail.vue";
 import StudentDetail from "../detail/StudentDetail.vue";
@@ -33,6 +35,7 @@ const emit = defineEmits([
 // ── Internal state ──────────────────────────────────────
 const classDetailId = ref(null);
 const studentDetailId = ref(null);
+const studentDetailSection = ref("name");
 const studentImportOpen = ref(false);
 const levelPickerOpen = ref(false);
 const search = ref(""),
@@ -141,17 +144,14 @@ async function addStudent(classId) {
   if (!classId) return;
 
   // Create a new student with default name
-  const { data, error } = await supabase
-    .from("tu_students")
-    .insert({
+  const { data: created, error } = await createProtectedStudents([{
       firstname: "Nouvel",
       lastname: "Élève",
       class_id: classId,
-    })
-    .select()
-    .single();
+    }]);
+  const data = created?.[0];
 
-  if (error) {
+  if (error || !data?.id) {
     console.error("Failed to add student:", error);
     alert("Erreur lors de l'ajout de l'élève");
     return;
@@ -282,6 +282,7 @@ function onStudentImported() {
                     <div
                       class="row-checkbox"
                       :class="{ checked: checkedClassIds.has(cls.id) }"
+                      v-glide-select="{ group: 'classes', checked: checkedClassIds.has(cls.id), toggle: () => handleClassCheck(cls) }"
                       @click.stop="handleClassCheck(cls)"
                     >
                       <Check
@@ -376,6 +377,7 @@ function onStudentImported() {
                                 (checkedClassIds.has(selectedClassId) &&
                                   !excludedStudentIds.has(student.id)),
                             }"
+                            v-glide-select="{ group: 'students', checked: checkedStudentIds.has(student.id) || (checkedClassIds.has(selectedClassId) && !excludedStudentIds.has(student.id)), toggle: () => handleStudentCheck(student) }"
                             @click.stop="handleStudentCheck(student)"
                           >
                             <Check
@@ -400,6 +402,7 @@ function onStudentImported() {
                                 (checkedClassIds.has(selectedClassId) &&
                                   !excludedStudentIds.has(student.id)),
                             }"
+                            v-glide-select="{ group: 'students', checked: checkedStudentIds.has(student.id) || (checkedClassIds.has(selectedClassId) && !excludedStudentIds.has(student.id)), toggle: () => handleStudentCheck(student) }"
                             @click.stop="handleStudentCheck(student)"
                           >
                             <Check
@@ -430,10 +433,12 @@ function onStudentImported() {
 
           <!-- Column 3: Student details (when editing) -->
           <div class="student-detail-column">
-            <Transition name="fade-in" mode="out-in">
               <StudentDetail
                 v-if="studentDetailId !== null"
                 :key="studentDetailId"
+                v-model:active-section="studentDetailSection"
+                @next-student="studentDetailId = $event"
+                @previous-student="studentDetailId = $event"
                 :student-id="studentDetailId"
                 :student-data="
                   allStudents.find((s) => s.id === studentDetailId)
@@ -448,7 +453,6 @@ function onStudentImported() {
                 @deleted="onStudentDeleted"
                 @data-changed="emit('data-changed')"
               />
-            </Transition>
           </div>
         </div>
       </div>
@@ -715,7 +719,7 @@ function onStudentImported() {
 }
 
 .student-gallery {
-  --gallery-card-bg: color-mix(in srgb, var(--text-light) 20%, var(--student-bg));
+  --gallery-card-bg: var(--surface-muted);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-content: start;

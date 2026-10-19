@@ -2,13 +2,15 @@
 import { ref, computed, watch } from "vue";
 import SkillOptions from "./SkillOptions.vue";
 import Sneaker from "../Sneaker.js";
-import { Trash2, BarChart3 } from "@lucide/vue";
+import { Trash2, BarChart3, ChevronLeft, ChevronRight } from "@lucide/vue";
 import { supabase } from "../../supabase";
+import ScalePreview from "../ScalePreview.vue";
 import RangeInput from "../RangeInput.vue";
 import IconSelector from "../popup/IconSelector.vue";
 
 const props = defineProps({
   skillId: { type: [String, Number], default: null },
+  initialTab: { type: String, default: "scale" },
   skillData: { type: Object, default: null },
   skills: { type: Array, required: true },
   editingSkills: { type: Array, required: true },
@@ -18,9 +20,16 @@ const props = defineProps({
   icons: { type: Array, required: true },
 });
 
-const emit = defineEmits(["close", "deleted", "data-changed", "duplicated"]);
+const emit = defineEmits(["close", "deleted", "data-changed", "duplicated", "navigate-skill"]);
 
-const activeTab = ref("info");
+const activeTab = ref(props.initialTab);
+const skillIndex = computed(() => props.editingSkills.findIndex(skill => skill.id === props.skillId));
+const previousSkill = computed(() => skillIndex.value > 0 ? props.editingSkills[skillIndex.value - 1] : null);
+const nextSkill = computed(() => skillIndex.value < 0 ? null : props.editingSkills[skillIndex.value + 1] || null);
+function navigateSkill(skill) {
+  if (skill) emit("navigate-skill", { id: skill.id, tab: activeTab.value });
+}
+watch(() => props.initialTab, (tab) => { activeTab.value = tab; });
 const detailTabs = [
   { id: "info", label: "Informations", icon: Sneaker },
   { id: "scale", label: "Type et échelle", icon: BarChart3 },
@@ -135,6 +144,16 @@ async function saveSkillDetail() {
   emit("data-changed");
 }
 
+const scalePreview = computed(() => {
+  const min = Number(editingNewSkillMin.value);
+  const max = Number(editingNewSkillMax.value);
+  const step = Number(editingNewSkillStep.value);
+  if (![min, max, step].every(Number.isFinite) || step <= 0 || max < min) return [];
+  const count = Math.floor((max - min) / step + 0.000001) + 1;
+  if (count > 1000) return [];
+  return Array.from({ length: count }, (_, index) => Math.round((min + index * step) * 100) / 100);
+});
+
 function updateScaleFromInputs() {
   if (!skillDetailEditing.value) return;
 
@@ -145,13 +164,7 @@ function updateScaleFromInputs() {
   if (isNaN(min) || isNaN(max) || isNaN(step) || step <= 0) return;
   if (min >= max) return;
 
-  // Generate scale array from min, max, step
-  const scale = [];
-  for (let val = min; val <= max + 0.0001; val += step) {
-    scale.push(Math.round(val * 100) / 100);
-  }
-
-  skillDetailEditing.value.scale = scale;
+  if (scalePreview.value.length) skillDetailEditing.value.scale = [...scalePreview.value];
 }
 
 async function deleteSkill() {
@@ -209,6 +222,7 @@ function selectSkillIcon(iconName) {
 
 <template>
   <div class="student-detail-column skill-detail">
+    <div class="skill-detail-scroll">
     <div v-if="skillDetailEditing" class="skill-detail-header">
       <button type="button" class="student-photo-circle"
         :class="{ 'picker-open': showSkillIconPicker }"
@@ -239,8 +253,9 @@ function selectSkillIcon(iconName) {
         </div>
       </template>
       <template #scale="{ skill: gradingSkill }">
-        <div class="detail-section">
+        <div v-if="!gradingSkill.grading_mode || gradingSkill.grading_mode === 'numeric'" class="detail-section">
           <label class="detail-label">Échelle</label>
+          <ScalePreview v-if="!gradingSkill.grading_mode || gradingSkill.grading_mode === 'numeric'" :levels="scalePreview" />
           <div
               v-if="
                 !gradingSkill.grading_mode ||
@@ -251,6 +266,7 @@ function selectSkillIcon(iconName) {
               <RangeInput
                 v-model:value="editingNewSkillMin"
                 :min="0"
+                :max="editingNewSkillMax - editingNewSkillStep"
                 label="Min"
                 size="small"
                 @change="
@@ -275,6 +291,7 @@ function selectSkillIcon(iconName) {
               <RangeInput
                 v-model:value="editingNewSkillStep"
                 :min="0.1"
+                :step="0.1"
                 label="Pas"
                 size="small"
                 @change="
@@ -288,12 +305,34 @@ function selectSkillIcon(iconName) {
         </div>
       </template>
     </SkillOptions>
+    </div>
+    <footer class="skill-detail-footer" aria-label="Navigation des habiletés">
+      <button type="button" :disabled="!previousSkill" @click="navigateSkill(previousSkill)">
+        <ChevronLeft :size="20" aria-hidden="true" /> Précédent
+      </button>
+      <button type="button" :disabled="!nextSkill" @click="navigateSkill(nextSkill)">
+        Prochain <ChevronRight :size="20" aria-hidden="true" />
+      </button>
+    </footer>
     <IconSelector v-if="showSkillIconPicker" :show="showSkillIconPicker" :icons="icons" :base-url="baseUrl"
       @close="showSkillIconPicker = false" @select="selectSkillIcon" />
   </div>
 </template>
 
 <style scoped>
+.skill-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.skill-detail-footer {
+  position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: space-between;
+  gap: 0.5rem; flex-wrap: wrap; flex-shrink: 0; margin-top: auto;
+  padding: 0.75rem 0 0.25rem; background: var(--surface);
+}
+.skill-detail-footer button {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  border: none; border-radius: 24px; padding: 0.6rem 0.8rem;
+  background: var(--surface-muted); color: var(--text-light); font: inherit;
+}
+.skill-detail { height: 100%; min-height: 0; }
+.skill-detail-header { flex-shrink: 0; }
 .header-trash-btn {
   display: flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; margin-left: auto; padding: 0;
@@ -309,10 +348,47 @@ function selectSkillIcon(iconName) {
 .skill-detail-tab.active { background: color-mix(in srgb, var(--modal-accent, #55b880) 16%, transparent); }
 .skill-detail-tab:focus-visible { outline: 2px solid var(--modal-accent, #55b880); outline-offset: 2px; }
 
-.skill-range-config {
+.skill-zone-preview {
   display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 110px;
+  margin-bottom: 1rem;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.skill-zone-preview-segment {
+  display: flex;
+  flex: 1 0 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.2rem;
+  background: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
+  color: var(--text-muted);
+  font-family: "Coiny", sans-serif;
+  font-size: 2rem;
+}
+.skill-range-config {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.skill-range-config :deep(.range-input-wrapper) { min-width: 0; }
+.skill-range-config :deep(.custom-number-input) { gap: 0; min-width: 0; }
+.skill-range-config :deep(.number-btn) {
+  display: flex;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 38px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-light);
+}
+.skill-range-config :deep(.number-input-field) {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem 0 !important;
+  font-size: 1rem;
 }
 
 .skill-range-config label {
