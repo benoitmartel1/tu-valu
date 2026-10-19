@@ -9,6 +9,7 @@ import {
   displayGrade,
 } from "../../lib/domain";
 import { supabase } from "../../supabase";
+import EvaluationMarks from "../EvaluationMarks.vue";
 
 const props = defineProps({
   checkedClassIds: { type: Set, required: true },
@@ -46,6 +47,61 @@ const observers = computed(() => [
 ]);
 const reportData = ref(null); // { sessions: [], students: [], skills: [], events: [] }
 const reportSelectedStudentId = ref(null); // null = list, id = student detail
+const reportTableHeader = ref(null);
+const columnWidths = ref({});
+const resizingColumn = ref(null);
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+const reportColumns = computed(() => [
+  "student", ...(reportData.value?.skills || []).map((skill) => `skill-${skill.id}`),
+]);
+const reportTableWidth = computed(() => reportColumns.value.every((key) => columnWidths.value[key])
+  ? `${reportColumns.value.reduce((total, key) => total + columnWidths.value[key], 0)}px`
+  : "100%");
+
+function captureColumnWidths() {
+  const headers = reportTableHeader.value?.querySelectorAll("th");
+  if (!headers) return;
+  columnWidths.value = Object.fromEntries(reportColumns.value.map((key, index) => [
+    key, headers[index].getBoundingClientRect().width,
+  ]));
+}
+
+function startColumnResize(event, key) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  captureColumnWidths();
+  resizingColumn.value = key;
+  resizeStartX = event.clientX;
+  resizeStartWidth = columnWidths.value[key];
+  event.currentTarget.setPointerCapture(event.pointerId);
+}
+
+function moveColumnResize(event) {
+  const key = resizingColumn.value;
+  if (!key) return;
+  columnWidths.value[key] = Math.max(120, resizeStartWidth + event.clientX - resizeStartX);
+}
+
+function resizeColumnWithKeyboard(event, key) {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  captureColumnWidths();
+  columnWidths.value[key] = Math.max(120, columnWidths.value[key] + (event.key === "ArrowRight" ? 16 : -16));
+}
+
+watch(reportTableHeader, (header, _previous, onCleanup) => {
+  if (!header) return;
+  const updateHeight = () => {
+    header.closest("table").style.setProperty(
+      "--report-header-height", `${header.getBoundingClientRect().height}px`,
+    );
+  };
+  const observer = new ResizeObserver(updateHeight);
+  observer.observe(header);
+  updateHeight();
+  onCleanup(() => observer.disconnect());
+}, { flush: "post" });
 
 const reportSelectedStudent = computed(
   () =>
@@ -66,12 +122,57 @@ const studentClassMap = computed(() => {
   return map;
 });
 
-// Group report students by class for the table
+const studentMenuOpen = ref(false);
+const nameSort = ref("firstname");
+const groupByClass = ref(true);
+const skillSort = ref(null);
+
+function cycleSkillSort(skillId) {
+  studentMenuOpen.value = false;
+  const current = skillSort.value;
+  skillSort.value = current?.skillId !== skillId
+    ? { skillId, direction: "ascending" }
+    : current.direction === "ascending"
+      ? { skillId, direction: "descending" }
+      : null;
+  nameSort.value = "none";
+}
+
+function setNameSort(value) {
+  nameSort.value = value;
+  skillSort.value = null;
+}
+
+function compareReportStudents(a, b) {
+  if (skillSort.value) {
+    const { skillId, direction } = skillSort.value;
+    const numericValue = (student) => {
+      const value = studentSkillLast(student.id, skillId);
+      if (value == null || value === "abs" || value === "") return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+    const av = numericValue(a);
+    const bv = numericValue(b);
+    if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1;
+    return (av - bv) * (direction === "ascending" ? 1 : -1);
+  }
+  if (nameSort.value === "none") return 0;
+  const field = nameSort.value;
+  const other = field === "firstname" ? "lastname" : "firstname";
+  return (a[field] || "").localeCompare(b[field] || "", "fr-FR", { sensitivity: "base", numeric: true }) ||
+    (a[other] || "").localeCompare(b[other] || "", "fr-FR", { sensitivity: "base", numeric: true });
+}
+
+// Stable sorting restores the loaded order when no sort is selected.
 const reportStudentsByClass = computed(() => {
   if (!reportData.value) return [];
+  if (!groupByClass.value) {
+    return [{ classId: "all", students: [...reportData.value.students].sort(compareReportStudents) }];
+  }
   const groups = {};
   for (const s of reportData.value.students) {
-    const classId = studentClassMap.value[s.id];
+    const classId = s.class_id ?? studentClassMap.value[s.id];
     if (!groups[classId]) {
       const cls = props.classes.find((c) => c.id === classId);
       groups[classId] = {
@@ -82,12 +183,12 @@ const reportStudentsByClass = computed(() => {
     }
     groups[classId].students.push(s);
   }
-  // Sort students within each group by firstname using French locale
-  return Object.values(groups).map((group) => ({
+  // Apply the selected sort within each class.
+  return Object.values(groups).sort((a, b) =>
+    String(a.className).localeCompare(String(b.className), "fr-FR", { numeric: true }),
+  ).map((group) => ({
     ...group,
-    students: group.students.sort((a, b) =>
-      (a.firstname || "").localeCompare(b.firstname || "", "fr-FR"),
-    ),
+    students: group.students.sort(compareReportStudents),
   }));
 });
 
@@ -873,7 +974,7 @@ defineExpose({
                             >
                           </span>
                         </span>
-                        <span v-else class="stats-na">N/A</span>
+                        <span v-else class="stats-na--empty" aria-label="Aucune évaluation"></span>
                       </td>
                     </tr>
                     <tr class="report-stats-separator">
@@ -904,7 +1005,14 @@ defineExpose({
               </div>
 
               <!-- Report table (list) -->
-              <div v-else key="list">
+              <div v-else key="list" class="report-list" @keydown.esc="studentMenuOpen = false">
+                <div class="report-list-toolbar">
+                  <div class="report-group-toggle" role="group" aria-label="Regroupement des élèves">
+                    <button type="button" :aria-pressed="groupByClass" @click="groupByClass = true">Par classe</button>
+                    <button type="button" :aria-pressed="!groupByClass" @click="groupByClass = false">Tous mélangés</button>
+                  </div>
+                </div>
+
                 <div
                   v-if="reportData.students.length === 0"
                   class="report-empty"
@@ -912,24 +1020,57 @@ defineExpose({
                   Aucun élève dans cette sélection.
                 </div>
                 <template v-else>
-                  <table class="report-table">
-                    <thead>
+                  <div class="report-table-scroll">
+                  <table class="report-table" :class="{ 'report-table--resizing': resizingColumn }" :style="{ width: reportTableWidth }">
+                    <colgroup>
+                      <col v-for="key in reportColumns" :key="key" :style="columnWidths[key] ? { width: `${columnWidths[key]}px` } : {}" />
+                    </colgroup>
+                    <thead ref="reportTableHeader">
                       <tr>
-                        <th class="report-th-student">Élève</th>
+                        <th class="report-th-student" :aria-sort="!skillSort && nameSort !== 'none' ? 'ascending' : 'none'">
+                          <button class="report-header-button" :aria-expanded="studentMenuOpen" @click="studentMenuOpen = !studentMenuOpen">
+                            Élève <span aria-hidden="true">⌄</span>
+                          </button>
+                          <span class="report-column-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionner la colonne Élève" tabindex="0"
+                            @pointerdown.stop="startColumnResize($event, 'student')" @pointermove="moveColumnResize" @pointerup="resizingColumn = null" @pointercancel="resizingColumn = null" @lostpointercapture="resizingColumn = null" @click.stop
+                            @keydown="resizeColumnWithKeyboard($event, 'student')"></span>
+                <template v-if="studentMenuOpen">
+                  <button class="report-menu-dismiss" aria-label="Fermer les options" @click="studentMenuOpen = false"></button>
+                  <div class="report-student-menu" role="group" aria-label="Options des élèves">
+                    <fieldset>
+                      <legend>Trier par</legend>
+                      <label v-for="option in [{ value: 'firstname', label: 'Prénom' }, { value: 'lastname', label: 'Nom de famille' }, { value: 'none', label: 'Aucun tri' }]" :key="option.value">
+                        <input type="radio" name="report-name-sort" :checked="nameSort === option.value && !skillSort" @change="setNameSort(option.value)" />
+                        {{ option.label }}
+                      </label>
+                    </fieldset>
+
+                  </div>
+                </template>
+                        </th>
                         <th
                           v-for="skill in reportData.skills"
                           :key="skill.id"
                           class="report-th-skill-col"
+                        :aria-sort="skillSort?.skillId === skill.id ? skillSort.direction : 'none'"
                         >
-                          {{ skill.name }}
+                        <button class="report-header-button" @click="cycleSkillSort(skill.id)">
+                          <span class="report-header-label">{{ skill.name }}</span>
+                          <span v-if="skillSort?.skillId === skill.id" aria-hidden="true">{{ skillSort.direction === 'ascending' ? '↑' : '↓' }}</span>
+                        </button>
+                        <span class="report-column-resizer" role="separator" aria-orientation="vertical" :aria-label="`Redimensionner la colonne ${skill.name}`" tabindex="0"
+                          @pointerdown.stop="startColumnResize($event, `skill-${skill.id}`)" @pointermove="moveColumnResize" @pointerup="resizingColumn = null" @pointercancel="resizingColumn = null" @lostpointercapture="resizingColumn = null" @click.stop
+                          @keydown="resizeColumnWithKeyboard($event, `skill-${skill.id}`)"></span>
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
-                      <template
+                    <tbody
                         v-for="group in reportStudentsByClass"
                         :key="group.classId"
                       >
+                        <tr v-if="groupByClass" class="report-class-header">
+                          <td :colspan="reportData.skills.length + 1">Classe {{ group.className }}</td>
+                        </tr>
                         <tr v-for="student in group.students" :key="student.id">
                           <td
                             class="report-td-student report-td-student--clickable"
@@ -952,18 +1093,17 @@ defineExpose({
                                 class="report-abs"
                                 >ABS</span
                               >
-                              <span v-else class="stat-latest">
-                                <span class="stat-latest-value">{{
-                                  studentSkillLast(student.id, skill.id)
-                                }}</span>
-                              </span>
+                              <EvaluationMarks
+                                v-else
+                                :events="getStudentEvents(student.id).filter((event) => event.skill_id === skill.id)"
+                              />
                             </template>
-                            <span v-else class="stats-na">N/A</span>
+                            <span v-else class="stats-na--empty" aria-label="Aucune évaluation"></span>
                           </td>
                         </tr>
-                      </template>
                     </tbody>
                   </table>
+                  </div>
                 </template>
               </div>
             </Transition>
@@ -977,7 +1117,9 @@ defineExpose({
 <style scoped>
 /* Modal background */
 .report-modal {
-  background: white;
+  --report-surface: white;
+  --report-header-background: rgb(235, 235, 235);
+  background: var(--report-surface);
 }
 
 /* Report modal body - full width */
@@ -1002,6 +1144,117 @@ defineExpose({
     overflow-y: auto;
   }
 }
+
+/* Keep controls outside the scroll area so rows stay below the table header. */
+.report-body > .report-list {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.report-list-toolbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  padding: 0.5rem 0.6rem 0.75rem;
+  background: var(--report-surface);
+}
+/* Cover fractional-pixel seams at the scroll viewport's top edge. */
+.report-list-toolbar::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -3px;
+  height: 3px;
+  background: var(--report-surface);
+  pointer-events: none;
+}
+.report-group-toggle {
+  display: inline-flex;
+  padding: 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--court-blue) 30%, transparent);
+  border-radius: 0.5rem;
+  gap: 0.2rem;
+}
+.report-group-toggle button {
+  padding: 0.4rem 0.7rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--court-blue);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.report-group-toggle button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--court-blue) 12%, transparent);
+  font-weight: 700;
+}
+.report-group-toggle button:focus-visible {
+  outline: 2px solid var(--court-blue);
+  outline-offset: 2px;
+}
+.report-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.report-header-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.report-table thead th.report-th-student { position: relative; overflow: visible; }
+.report-th-student .report-header-button { justify-content: flex-start; }
+.report-header-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-header-button:focus-visible { outline: 2px solid var(--court-blue); outline-offset: 2px; }
+.report-column-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+.report-column-resizer:hover,
+.report-column-resizer:focus-visible { background: #26465340; outline: none; }
+.report-table--resizing { user-select: none; cursor: col-resize; }
+.report-menu-dismiss { position: fixed; inset: 0; z-index: 20; border: 0; background: transparent; cursor: default; }
+.report-student-menu {
+  position: absolute;
+  top: 100%;
+  left: 0.5rem;
+  z-index: 21;
+  min-width: 180px;
+  padding: 0.75rem;
+  border: 1px solid #dce2e5;
+  border-radius: 12px;
+  background: white;
+  color: var(--court-blue);
+  box-shadow: 0 6px 24px #26465326;
+  font-size: 0.85rem;
+}
+.report-student-menu fieldset { margin: 0; padding: 0; border: 0; }
+.report-student-menu fieldset + fieldset { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #e8ecee; }
+.report-student-menu legend { margin-bottom: 0.3rem; font-weight: 700; }
+.report-student-menu label { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; cursor: pointer; }
+.report-student-menu input { accent-color: var(--court-blue); }
 
 /* Report student detail view */
 .report-student-detail {
@@ -1090,7 +1343,8 @@ defineExpose({
 /* Report table styles */
 .report-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-bottom: 1.5rem;
   font-size: 0.82rem;
   table-layout: fixed;
@@ -1107,9 +1361,13 @@ defineExpose({
 .report-table thead {
   position: sticky;
   top: 0;
+  z-index: 2;
+  background: var(--report-surface);
+  box-shadow: 0 1px 0 var(--report-header-background);
   th {
+    position: relative;
     border-right: 1px solid white;
-    background: rgb(235, 235, 235);
+    background: var(--report-header-background);
     color: var(--court-blue);
     font-weight: 700;
     font-size: 1.1rem;
@@ -1134,8 +1392,12 @@ defineExpose({
 }
 
 .report-class-header td {
+  box-shadow: 0 -1px 0 var(--court-blue);
+  position: sticky;
+  top: var(--report-header-height, 2.5rem);
+  z-index: 1;
   background: var(--court-blue);
-  /* color: var(--text-light); */
+  color: var(--text-light);
   font-weight: 700;
   font-size: 0.95rem;
   padding: 0.5rem 0.75rem;
@@ -1157,7 +1419,12 @@ defineExpose({
 .report-table .report-td-student {
   text-align: left;
   color: var(--court-blue);
+  font-size: 1.15rem;
+  line-height: 1.2;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .report-table tbody tr:not(.report-class-header):nth-child(even) {
@@ -1165,6 +1432,7 @@ defineExpose({
 }
 
 .report-td-count {
+  overflow: hidden;
   color: var(--court-blue);
   font-weight: 600;
   font-size: 0.85rem;
@@ -1479,7 +1747,7 @@ defineExpose({
 .stat-latest-value {
   font-size: 1rem;
   font-weight: 800;
-  /* color: var(--text-light); */
+  color: var(--text-light);
   line-height: 1;
 }
 
@@ -1524,5 +1792,21 @@ defineExpose({
 .report-detail-table .stats-na {
   color: rgba(38, 70, 83, 0.25);
   font-weight: 400;
+}
+
+.report-table tbody tr:not(.report-class-header) {
+  height: 3.25rem;
+}
+
+.report-table tbody tr:not(.report-class-header) > td {
+  box-sizing: border-box;
+  height: 3.25rem;
+  padding-block: 0.375rem;
+  vertical-align: middle;
+}
+
+.stats-na--empty {
+  display: block;
+  height: 2.5rem;
 }
 </style>
