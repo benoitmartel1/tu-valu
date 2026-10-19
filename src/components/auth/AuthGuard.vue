@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from "vue";
-import { Loader2 } from "@lucide/vue";
+import LoadingPopup from "../popup/LoadingPopup.vue";
 import AuthModal from "./AuthModal.vue";
 import { loading, isAuthenticated, showAuthModal } from "../../stores/auth";
 
@@ -10,10 +10,7 @@ const isReady = computed(() => !loading.value);
 <template>
   <div class="auth-guard">
     <!-- Loading state -->
-    <div v-if="!isReady" class="loading-screen">
-      <Loader2 :size="48" class="spinner" />
-      <p>Loading...</p>
-    </div>
+    <LoadingPopup v-if="!isReady" />
 
     <!-- Authenticated content -->
     <template v-else-if="isAuthenticated">
@@ -37,29 +34,6 @@ const isReady = computed(() => !loading.value);
 <style scoped>
 .auth-guard {
   min-height: 100vh;
-}
-
-.loading-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  gap: 16px;
-  color: var(--text-light);
-}
-
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .auth-prompt {

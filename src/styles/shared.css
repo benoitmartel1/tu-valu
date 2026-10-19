@@ -129,28 +129,17 @@
   flex: 1;
 }
 
-/* Scrollbar styling for class and student lists */
-.class-list::-webkit-scrollbar,
-.student-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.class-list::-webkit-scrollbar-track,
-.student-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.class-list::-webkit-scrollbar-thumb,
-.student-list::-webkit-scrollbar-thumb {
-  background: #457b9d;
-  border-radius: 4px;
-}
-
-/* Firefox scrollbar */
+/* Hide list scrollbars while preserving scrolling. */
 .class-list,
 .student-list {
-  scrollbar-width: thin;
-  scrollbar-color: #457b9d transparent;
+  scrollbar-width: none;
+}
+
+.class-list::-webkit-scrollbar,
+.student-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Class item */
@@ -229,7 +218,7 @@
   padding: 0.2rem 1rem;
   padding-right: 0.3rem;
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: 18px;
   background: rgba(168, 218, 220, 0.26);
   color: var(--text-light);
   font-size: 1.25rem;

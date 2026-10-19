@@ -49,7 +49,7 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
   gap: var(--mark-gap);
   min-width: 11.5rem;
   height: var(--mark-height);
-  color: var(--court-blue);
+  color: var(--text-light);
   font-variant-numeric: tabular-nums;
 }
 .evaluation-history {
@@ -70,7 +70,7 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
   height: var(--mark-height);
   aspect-ratio: 1;
   /* padding: 0.15rem; */
-  border: 1px solid color-mix(in srgb, var(--court-blue) 45%, transparent);
+  border: 1px solid var(--border-color);
   border-radius: 0.35rem;
   box-sizing: border-box;
   font-size: 0.9rem;
@@ -90,7 +90,7 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
   text-align: center;
   height: var(--mark-height);
   border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--court-blue) 12%, transparent);
+  background: var(--surface-muted);
   font-size: 0.9rem;
   font-weight: 600;
 }

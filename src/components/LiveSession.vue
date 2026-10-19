@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import {
   Users,
   Cake,
@@ -32,6 +32,7 @@ import {
 import { preferences } from "../stores/preferences";
 import { allRows } from "../lib/data";
 import {
+  birthdayInDays,
   studentName,
   belongsTo,
   observationClass,
@@ -42,6 +43,7 @@ import {
 } from "../lib/domain";
 import StudentAvatar from "./StudentAvatar.vue";
 import Birthdays from "./popup/Birthdays.vue";
+import LoadingPopup from "./popup/LoadingPopup.vue";
 import { supabase } from "../supabase";
 import { skillIconNames } from "../data/skillIcons";
 import { signOut, userEmail, userId } from "../stores/auth";
@@ -74,6 +76,26 @@ import ActionConfirmation from "./popup/ActionConfirmation.vue";
 
 const actionConfirmation = ref(null);
 const showBirthdays = ref(false);
+const birthdayToday = ref(new Date());
+const birthdayOpenedOn = ref("");
+const birthdayDay = computed(() => birthdayToday.value.toLocaleDateString("en-CA"));
+const hasBirthdaysToday = computed(() =>
+  allStudents.value.some((student) => birthdayInDays(student.birth_date, birthdayToday.value) === 0),
+);
+const birthdayUnseen = computed(() =>
+  hasBirthdaysToday.value && birthdayOpenedOn.value !== birthdayDay.value,
+);
+let birthdayTimer;
+onMounted(() => {
+  birthdayToday.value = new Date();
+  birthdayTimer = setInterval(() => { birthdayToday.value = new Date(); }, 60000);
+});
+onUnmounted(() => clearInterval(birthdayTimer));
+function openBirthdays() {
+  birthdayToday.value = new Date();
+  birthdayOpenedOn.value = birthdayDay.value;
+  showBirthdays.value = true;
+}
 const hiddenStudents = ref(new Set());
 const absentStudents = ref(new Set());
 const priorities = ref({});
@@ -1191,21 +1213,6 @@ defineExpose({
             <Sneaker :size="20" />
           </template>
         </button>
-        <button class="fab" title="Anniversaires" @click="showBirthdays = true">
-          <Cake :size="20" />
-        </button>
-        <button
-          class="fab"
-          title="Changer le thème"
-          @click="
-            preferences.theme = preferences.theme === 'dark' ? 'light' : 'dark'
-          "
-        >
-          <Sun v-if="preferences.theme === 'dark'" :size="20" /><Moon
-            v-else
-            :size="20"
-          />
-        </button>
         <!-- Teams button -->
         <button
           class="fab fab--teams"
@@ -1231,6 +1238,28 @@ defineExpose({
         <ActionConfirmation ref="actionConfirmation" />
       </div>
       <div class="top-bar-right">
+        <div class="toolbar-utilities" role="group" aria-label="Affichage et anniversaires">
+        <button class="utility-btn birthday-btn"
+          :class="{ 'birthday-btn--today': hasBirthdaysToday, 'birthday-btn--unseen': birthdayUnseen }"
+          :title="hasBirthdaysToday ? 'Anniversaires aujourd’hui' : 'Anniversaires'"
+          :aria-label="hasBirthdaysToday ? 'Anniversaires aujourd’hui' : 'Anniversaires'"
+          :aria-expanded="showBirthdays"
+          @click="openBirthdays">
+          <Cake :size="20" />
+        </button>
+        <button
+          class="utility-btn"
+          title="Changer le thème"
+          @click="
+            preferences.theme = preferences.theme === 'dark' ? 'light' : 'dark'
+          "
+        >
+          <Sun v-if="preferences.theme === 'dark'" :size="20" /><Moon
+            v-else
+            :size="20"
+          />
+        </button>
+        </div>
         <!-- User menu -->
         <div class="user-menu-container">
           <button
@@ -1260,7 +1289,7 @@ defineExpose({
       <button @click="saveError = ''">Fermer</button>
     </div>
     <div v-if="savingEvent" role="status">Enregistrement…</div>
-    <div v-else-if="loading" role="status">Chargement…</div>
+    <LoadingPopup v-if="loading" />
     <!-- ── MAIN CONTENT (stacked layers) ────────────────── -->
     <div class="main-content" @click="userMenuOpen = false">
       <!-- LIVE SCREEN (always visible) -->
@@ -1484,6 +1513,36 @@ defineExpose({
         >
           <Funnel :size="16" />
         </button>
+
+        <button
+          v-if="hiddenStudents.size"
+          @click="restoreStudents"
+          title="Rétablir les élèves retirés"
+        >
+          Rétablir ({{ hiddenStudents.size }})
+        </button>
+        <div
+          class="session-drop"
+          data-hide-zone
+          title="Retirer temporairement, sans trace"
+        >
+          <EyeOff :size="22" /><small>Retirer</small>
+        </div>
+        <div
+          class="session-drop"
+          data-priority-zone
+          title="Priorité : jusqu’à 3 niveaux"
+        >
+          <Star :size="22" /><small>Priorité</small>
+        </div>
+        <div
+          class="absent-zone"
+          :class="{ 'absent-zone--hover': hoveredAbsent }"
+          data-absent-zone
+          title="Consigner une absence"
+        >
+          <HatGlasses :size="22" /><small>Absence</small>
+        </div>
       </div>
 
       <!-- Middle zone: student bubbles -->
@@ -1581,44 +1640,13 @@ defineExpose({
         </template>
       </div>
 
-      <!-- Right zone: absent drop -->
-      <div class="students-row-right">
-        <button
-          v-if="hiddenStudents.size"
-          @click="restoreStudents"
-          title="Rétablir les élèves retirés"
-        >
-          Rétablir ({{ hiddenStudents.size }})
-        </button>
-        <div
-          class="session-drop"
-          data-hide-zone
-          title="Retirer temporairement, sans trace"
-        >
-          <EyeOff :size="22" /><small>Retirer</small>
-        </div>
-        <div
-          class="session-drop"
-          data-priority-zone
-          title="Priorité : jusqu’à 3 niveaux"
-        >
-          <Star :size="22" /><small>Priorité</small>
-        </div>
-        <div
-          class="absent-zone"
-          :class="{ 'absent-zone--hover': hoveredAbsent }"
-          data-absent-zone
-          title="Consigner une absence"
-        >
-          <HatGlasses :size="22" /><small>Absence</small>
-        </div>
-      </div>
     </div>
   </div>
 
   <Birthdays
     v-if="showBirthdays"
     :students="allStudents"
+    :initial-all="hasBirthdaysToday"
     :selected-students="rosterStudents"
     @close="showBirthdays = false"
   />
@@ -1815,7 +1843,17 @@ textarea {
 
 .students-row-left {
   position: relative;
+  flex-direction: column;
+  align-items: center;
+  width: 56px;
 }
+.students-row-left .students-row-btn { width: 48px; }
+.students-row-left > button:not(.students-row-btn) {
+  max-width: 56px;
+  padding: 0.25rem;
+  font-size: 0.7rem;
+}
+
 
 .top-bar-center {
   display: flex;
@@ -2167,6 +2205,40 @@ textarea {
   align-items: center;
   gap: 0.5rem;
   padding-right: 1rem;
+}
+
+.toolbar-utilities {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-right: 0.65rem;
+  margin-right: 0.15rem;
+  border-right: 1px solid var(--border-color);
+}
+.utility-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  color: var(--text-light);
+}
+.utility-btn:hover {
+  background: var(--team-gray);
+}
+
+.utility-btn.birthday-btn { --birthday-accent: #e879ad; background: transparent; }
+.utility-btn.birthday-btn--today { background: color-mix(in srgb, var(--birthday-accent) 30%, var(--surface)); color: var(--text-light); }
+.utility-btn.birthday-btn--unseen { animation: birthday-pulse 0.9s ease-in-out infinite; }
+@keyframes birthday-pulse {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: color-mix(in srgb, var(--birthday-accent) 30%, var(--surface)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .utility-btn.birthday-btn--unseen { animation: none; }
 }
 
 /* ── Undo button ────────────────────────────────── */
@@ -2553,28 +2625,29 @@ textarea {
   flex: 1;
 }
 .live-screen {
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 .zones-container {
-  flex: 0 0 auto;
-  min-height: 100%;
-  overflow: visible;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .drop-zone {
-  min-height: 120px;
+  min-height: 0;
 }
 .zones-container--grid .drop-zone {
-  min-height: 140px;
+  min-height: 0;
 }
 .students-row {
-  max-height: 28dvh;
+  max-height: none;
   padding-bottom: env(safe-area-inset-bottom);
 }
 .students-row-center {
   min-width: 0;
-  max-height: 26dvh;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
 }
 .student-wrapper {
   border-radius: 16px;
@@ -2638,10 +2711,11 @@ textarea {
   background: var(--surface);
 }
 .zone-segment {
-  color: var(--text-light);
-  background: var(--surface-muted);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-muted) 88%, var(--text-muted));
 }
 .segment-hover {
+  color: #ffffff;
   background: var(--accent);
 }
 .rubric-criteria {
@@ -2713,5 +2787,27 @@ textarea {
 .students-row-right {
   flex-shrink: 0;
 }
+/* Evaluation targets share the available height instead of extending the page. */
+.zones-container--grid {
+  grid-auto-rows: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.drop-zone { min-width: 0; flex-basis: 0; }
+.zone-segments {
+  min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
+  container-type: size;
+}
+.zone-segment {
+  min-height: 0;
+  padding: 2px;
+  font-size: clamp(0.65rem, min(4vw, 60cqh), 5.5rem);
+}
+.zone-header { padding: 4px 8px; }
+.zone-name { min-width: 0; overflow: hidden; white-space: nowrap; }
+.zone-skill-name, .zone-eval-name { overflow: hidden; text-overflow: ellipsis; }
+.rubric-criteria { min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+.rubric-column { min-height: 0; min-width: 0; }
+.rubric-column .zone-segment { min-height: 0; flex: 1 1 0; font-size: clamp(0.65rem, 1.8vh, 1.25rem); }
 </style>
 ;

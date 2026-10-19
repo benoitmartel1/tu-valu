@@ -72,10 +72,10 @@ function getTeamColor(teamId) {
           ></template
         >
         <label
-          >Thème<select v-model="preferences.theme">
+          >Thème<PopupSelect v-model="preferences.theme">
             <option value="dark">Sombre</option>
             <option value="light">Clair</option>
-          </select></label
+          </PopupSelect></label
         >
         <button @click="$emit('reset-priorities')">
           Réinitialiser les priorités
@@ -197,7 +197,7 @@ function getTeamColor(teamId) {
           </button>
         </div>
         <label
-          >Ensemble d’équipes<select
+          >Ensemble d’équipes<PopupSelect
             :value="teamBatchId"
             @change="$emit('update:teamBatchId', $event.target.value)"
           >
@@ -208,7 +208,7 @@ function getTeamColor(teamId) {
                   : `Ensemble ${teamBatches.length - index}`
               }}
             </option>
-          </select></label
+          </PopupSelect></label
         >
         <div v-if="teamsActive" class="settings-options">
           <label

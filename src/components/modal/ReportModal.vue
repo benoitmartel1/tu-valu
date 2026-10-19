@@ -1,6 +1,7 @@
 <script setup>
+import LoadingPopup from "../popup/LoadingPopup.vue";
 import { ref, computed, watch, onMounted } from "vue";
-import { ChevronUp, Download, ChevronLeft, Eye } from "@lucide/vue";
+import { ChevronUp, Download, ChevronLeft, Eye, User } from "@lucide/vue";
 import { allRows, downloadCsv } from "../../lib/data";
 import {
   csvText,
@@ -28,6 +29,14 @@ const emit = defineEmits(["close"]);
 const reportLoading = ref(false);
 const reportError = ref("");
 const observerFilter = ref("");
+const nameFilter = ref("");
+const normalizeName = (value) => String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("fr");
+const filteredReportStudents = computed(() => {
+  const query = normalizeName(nameFilter.value.trim());
+  return (reportData.value?.students || []).filter((student) =>
+    !query || normalizeName([student.firstname, student.lastname, student.custom_name].filter(Boolean).join(" ")).includes(query),
+  );
+});
 let reportRequest = 0;
 const filteredEvents = computed(() =>
   (reportData.value?.events || []).filter(
@@ -168,10 +177,10 @@ function compareReportStudents(a, b) {
 const reportStudentsByClass = computed(() => {
   if (!reportData.value) return [];
   if (!groupByClass.value) {
-    return [{ classId: "all", students: [...reportData.value.students].sort(compareReportStudents) }];
+    return [{ classId: "all", students: [...filteredReportStudents.value].sort(compareReportStudents) }];
   }
   const groups = {};
-  for (const s of reportData.value.students) {
+  for (const s of filteredReportStudents.value) {
     const classId = s.class_id ?? studentClassMap.value[s.id];
     if (!groups[classId]) {
       const cls = props.classes.find((c) => c.id === classId);
@@ -668,43 +677,43 @@ defineExpose({
           >
             <ChevronUp :size="28" :stroke-width="3" />
           </button>
-          <button
-            class="export-btn"
-            :disabled="!reportData || reportLoading"
-            title="Exporter le sommaire en CSV"
-            aria-label="Exporter le sommaire en CSV"
-            @click="exportLatestReport"
-          >
-            <Download :size="22" />
-            <span>Sommaire</span>
-          </button>
-          <button
-            class="export-btn"
-            :disabled="!reportData || reportLoading"
-            title="Exporter le log avec horodatage en CSV"
-            aria-label="Exporter le log avec horodatage en CSV"
-            @click="exportAllReport"
-          >
-            <Download :size="22" />
-            <span>Log</span>
-          </button>
+          <details class="report-export-menu" @keydown.esc="$event.currentTarget.removeAttribute('open')">
+            <summary class="export-btn" title="Exporter en CSV" aria-label="Exporter en CSV">
+              <Download :size="22" />
+            </summary>
+            <div class="report-export-options">
+              <button type="button" :disabled="!reportData || reportLoading"
+                @click="exportLatestReport(); $event.currentTarget.closest('details').removeAttribute('open')">
+                Sommaire
+              </button>
+              <button type="button" :disabled="!reportData || reportLoading"
+                @click="exportAllReport(); $event.currentTarget.closest('details').removeAttribute('open')">
+                Log avec horodatage
+              </button>
+            </div>
+          </details>
         </aside>
         <div class="report-body">
-          <div class="feature-toolbar">
-            <label
-              >Observateur
-              <select v-model="observerFilter">
+          <div class="feature-toolbar report-toolbar">
+            <div v-if="!reportSelectedStudentId" class="class-search-bar report-name-search">
+              <input v-model="nameFilter" type="search" placeholder="Rechercher par nom" aria-label="Rechercher un élève par nom" />
+            </div>
+            <div v-if="!reportSelectedStudentId && reportData" class="report-group-toggle" role="group" aria-label="Regroupement des élèves">
+              <button type="button" :aria-pressed="groupByClass" @click="groupByClass = true">Par classe</button>
+              <button type="button" :aria-pressed="!groupByClass" @click="groupByClass = false">Tous mélangés</button>
+            </div>
+            <label class="report-observer-filter" title="Observateur">
+              <User :size="20" aria-hidden="true" />
+              <PopupSelect v-model="observerFilter" aria-label="Observateur">
                 <option value="">Tous</option>
-                <option v-for="[id, name] in observers" :key="id" :value="id">
-                  {{ name }}
-                </option>
-              </select></label
-            >
+                <option v-for="[id, name] in observers" :key="id" :value="id">{{ name }}</option>
+              </PopupSelect>
+            </label>
           </div>
           <div v-if="reportError" role="alert">
             {{ reportError }} <button @click="loadReportData">Réessayer</button>
           </div>
-          <div v-if="reportLoading" class="report-loading">Chargement…</div>
+          <LoadingPopup v-if="reportLoading" />
           <div v-else-if="!reportData" class="report-empty">Aucune donnée.</div>
           <template v-else>
             <Transition name="slide-edit" mode="out-in">
@@ -779,7 +788,7 @@ defineExpose({
                           studentChartData.yAxisMax,
                         )
                       "
-                      stroke="rgba(38,70,83,0.08)"
+                      stroke="var(--input-border)"
                       stroke-width="1"
                     />
                     <!-- Y-axis labels -->
@@ -1006,18 +1015,13 @@ defineExpose({
 
               <!-- Report table (list) -->
               <div v-else key="list" class="report-list" @keydown.esc="studentMenuOpen = false">
-                <div class="report-list-toolbar">
-                  <div class="report-group-toggle" role="group" aria-label="Regroupement des élèves">
-                    <button type="button" :aria-pressed="groupByClass" @click="groupByClass = true">Par classe</button>
-                    <button type="button" :aria-pressed="!groupByClass" @click="groupByClass = false">Tous mélangés</button>
-                  </div>
-                </div>
+
 
                 <div
-                  v-if="reportData.students.length === 0"
+                  v-if="filteredReportStudents.length === 0"
                   class="report-empty"
                 >
-                  Aucun élève dans cette sélection.
+                  Aucun élève dans cette sélection ou correspondant à la recherche.
                 </div>
                 <template v-else>
                   <div class="report-table-scroll">
@@ -1115,10 +1119,35 @@ defineExpose({
 </template>
 
 <style scoped>
+.report-export-menu { position: relative; }
+.report-export-menu > summary { list-style: none; }
+.report-export-menu > summary::-webkit-details-marker { display: none; }
+.report-export-options {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 0.5rem);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 0.4rem;
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.report-export-options button {
+  padding: 0.65rem;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  background: transparent;
+  color: var(--text-light);
+}
 /* Modal background */
 .report-modal {
-  --report-surface: white;
-  --report-header-background: rgb(235, 235, 235);
+  --report-surface: var(--surface);
+  --report-header-background: var(--surface);
+  color: var(--text-light);
   background: var(--report-surface);
 }
 
@@ -1128,25 +1157,49 @@ defineExpose({
   width: 100%;
 }
 
-/* Report body - white background container */
+/* Keep controls and report content in one scrollable viewport. */
 .report-body {
-  width: 100%;
-  max-width: 100%;
   flex: 1;
-
-  border-radius: 12px;
-  padding: 1rem;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
   height: 100%;
-  > div {
-    border-top-left-radius: 18px;
-    border-top-right-radius: 18px;
-    height: 100%;
-    overflow-y: auto;
-  }
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border-radius: 12px;
+  overflow: hidden;
 }
+
+.report-body > .feature-toolbar {
+  flex-shrink: 0;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.report-toolbar .report-name-search {
+  flex: 1 1 240px;
+  max-width: 360px;
+  min-width: 160px;
+}
+.report-name-search input {
+  width: 100%;
+  min-height: 44px;
+  font: inherit;
+}
+.report-body > .feature-toolbar .report-group-toggle { margin-left: auto; }
+.report-toolbar .report-observer-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.report-student-detail { overflow: auto; min-height: 0; }
 
 /* Keep controls outside the scroll area so rows stay below the table header. */
 .report-body > .report-list {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1175,7 +1228,7 @@ defineExpose({
 .report-group-toggle {
   display: inline-flex;
   padding: 0.2rem;
-  border: 1px solid color-mix(in srgb, var(--court-blue) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-light) 30%, transparent);
   border-radius: 0.5rem;
   gap: 0.2rem;
 }
@@ -1184,17 +1237,17 @@ defineExpose({
   border: 0;
   border-radius: 0.3rem;
   background: transparent;
-  color: var(--court-blue);
+  color: var(--text-light);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
 }
 .report-group-toggle button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--court-blue) 12%, transparent);
+  background: color-mix(in srgb, var(--text-light) 12%, transparent);
   font-weight: 700;
 }
 .report-group-toggle button:focus-visible {
-  outline: 2px solid var(--court-blue);
+  outline: 2px solid var(--text-light);
   outline-offset: 2px;
 }
 .report-table-scroll {
@@ -1220,7 +1273,7 @@ defineExpose({
 .report-table thead th.report-th-student { position: relative; overflow: visible; }
 .report-th-student .report-header-button { justify-content: flex-start; }
 .report-header-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.report-header-button:focus-visible { outline: 2px solid var(--court-blue); outline-offset: 2px; }
+.report-header-button:focus-visible { outline: 2px solid var(--text-light); outline-offset: 2px; }
 .report-column-resizer {
   position: absolute;
   top: 0;
@@ -1232,8 +1285,7 @@ defineExpose({
   user-select: none;
   z-index: 3;
 }
-.report-column-resizer:hover,
-.report-column-resizer:focus-visible { background: #26465340; outline: none; }
+.report-column-resizer:focus-visible { background: color-mix(in srgb, var(--accent) 25%, transparent); outline: none; }
 .report-table--resizing { user-select: none; cursor: col-resize; }
 .report-menu-dismiss { position: fixed; inset: 0; z-index: 20; border: 0; background: transparent; cursor: default; }
 .report-student-menu {
@@ -1243,18 +1295,18 @@ defineExpose({
   z-index: 21;
   min-width: 180px;
   padding: 0.75rem;
-  border: 1px solid #dce2e5;
+  border: 1px solid var(--input-border);
   border-radius: 12px;
-  background: white;
-  color: var(--court-blue);
-  box-shadow: 0 6px 24px #26465326;
+  background: var(--surface);
+  color: var(--text-light);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--text-light) 15%, transparent);
   font-size: 0.85rem;
 }
 .report-student-menu fieldset { margin: 0; padding: 0; border: 0; }
-.report-student-menu fieldset + fieldset { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #e8ecee; }
+.report-student-menu fieldset + fieldset { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--input-border); }
 .report-student-menu legend { margin-bottom: 0.3rem; font-weight: 700; }
 .report-student-menu label { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; cursor: pointer; }
-.report-student-menu input { accent-color: var(--court-blue); }
+.report-student-menu input { accent-color: var(--accent); }
 
 /* Report student detail view */
 .report-student-detail {
@@ -1267,7 +1319,7 @@ defineExpose({
 .report-student-name {
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--court-blue);
+  color: var(--text-light);
   margin-bottom: 0.5rem;
 }
 
@@ -1297,7 +1349,7 @@ defineExpose({
   gap: 0.5rem;
   button {
     opacity: 1;
-    color: var(--court-blue) !important;
+    color: var(--text-light) !important;
   }
 }
 
@@ -1309,7 +1361,7 @@ defineExpose({
   justify-content: center;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-muted);
 
   cursor: pointer;
 }
@@ -1319,8 +1371,8 @@ defineExpose({
 }
 
 .export-btn {
-  min-width: 64px;
-  min-height: 54px;
+  width: 38px;
+  min-height: 38px;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -1330,7 +1382,7 @@ defineExpose({
   justify-content: center;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: transparent;
   color: var(--text-light);
   cursor: pointer;
 }
@@ -1353,8 +1405,8 @@ defineExpose({
 
 .report-table th,
 .report-table td {
-  color: var(--court-blue);
-  padding: 0.4rem 0.6rem;
+  color: var(--text-light);
+  padding: 0.34rem 0.6rem;
   text-align: center;
 }
 
@@ -1363,12 +1415,16 @@ defineExpose({
   top: 0;
   z-index: 2;
   background: var(--report-surface);
-  box-shadow: 0 1px 0 var(--report-header-background);
+  box-shadow: 0 1px 0 var(--input-border);
   th {
     position: relative;
-    border-right: 1px solid white;
+    box-sizing: border-box;
+    height: 2.7625rem;
+    padding-block: 0.31875rem;
+    border-right: none;
+    border-bottom: 1px solid var(--input-border);
     background: var(--report-header-background);
-    color: var(--court-blue);
+    color: var(--text-light);
     font-weight: 700;
     font-size: 1.1rem;
     text-overflow: ellipsis;
@@ -1379,11 +1435,11 @@ defineExpose({
 }
 
 .report-table thead th:first-child {
-  border-top-left-radius: 18px;
+  border-top-left-radius: 0;
 }
 
 .report-table thead th:last-child {
-  border-top-right-radius: 18px;
+  border-top-right-radius: 0;
 }
 
 .report-table .report-th-student {
@@ -1391,16 +1447,23 @@ defineExpose({
   width: 1%;
 }
 
+.report-table tbody td { height: 2.805rem; }
+.report-table :deep(.evaluation-marks),
+.report-detail-table :deep(.evaluation-marks) {
+  --mark-height: 2.125rem;
+}
+
 .report-class-header td {
-  box-shadow: 0 -1px 0 var(--court-blue);
+  box-shadow: 0 -1px 0 var(--input-border);
   position: sticky;
   top: var(--report-header-height, 2.5rem);
   z-index: 1;
-  background: var(--court-blue);
-  color: var(--text-light);
+  background: var(--modal-accent, #e5b82e);
+  color: #ffffff;
   font-weight: 700;
-  font-size: 0.95rem;
-  padding: 0.5rem 0.75rem;
+  font-size: 1.15rem;
+  line-height: 1.2;
+  padding: 0.34rem 0.6rem;
   border: none;
   border-radius: 0;
   text-align: left;
@@ -1408,7 +1471,7 @@ defineExpose({
 }
 
 .report-table tbody tr.report-class-header {
-  border-top: 2px solid rgba(38, 70, 83, 0.2);
+  border-top: 2px solid var(--input-border);
 }
 
 .report-th-skill-col {
@@ -1418,7 +1481,7 @@ defineExpose({
 
 .report-table .report-td-student {
   text-align: left;
-  color: var(--court-blue);
+  color: var(--text-light);
   font-size: 1.15rem;
   line-height: 1.2;
   font-weight: 600;
@@ -1428,19 +1491,19 @@ defineExpose({
 }
 
 .report-table tbody tr:not(.report-class-header):nth-child(even) {
-  background: rgba(38, 70, 83, 0.04);
+  background: color-mix(in srgb, var(--surface-muted) 65%, var(--surface));
 }
 
 .report-td-count {
   overflow: hidden;
-  color: var(--court-blue);
+  color: var(--text-light);
   font-weight: 600;
   font-size: 0.85rem;
   text-align: center;
 }
 
 .report-abs {
-  color: #d62828;
+  color: var(--danger);
   font-style: italic;
   font-weight: 700;
 }
@@ -1450,7 +1513,7 @@ defineExpose({
 }
 
 .report-table .report-td-student--clickable:focus-visible {
-  background: rgba(38, 70, 83, 0.08);
+  background: var(--surface-muted);
 }
 
 .report-table .stat-latest {
@@ -1467,15 +1530,15 @@ defineExpose({
 
 .report-detail-table th,
 .report-detail-table td {
-  color: var(--court-blue);
-  padding: 0.4rem 0.6rem;
+  color: var(--text-light);
+  padding: 0.34rem 0.6rem;
   /* text-align: left; */
-  border: 1px solid rgba(38, 70, 83, 0.1);
+  border: 1px solid var(--input-border);
 }
 
 .report-detail-table thead {
   th {
-    background: rgba(38, 70, 83, 0.08);
+    background: var(--surface-muted);
     font-weight: 700;
   }
 }
@@ -1489,18 +1552,18 @@ defineExpose({
 }
 
 .report-stats-row td {
-  background: rgba(38, 70, 83, 0.04);
+  background: color-mix(in srgb, var(--surface-muted) 65%, var(--surface));
 }
 
 .report-stats-separator td {
-  height: 0.5rem;
+  height: 0.425rem;
   padding: 0;
   border: 0;
   background: transparent;
 }
 
 .stats-na {
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* Chart styles */
@@ -1512,7 +1575,7 @@ defineExpose({
   font-size: 1.1rem;
   font-weight: 700;
   margin-bottom: 1rem;
-  color: var(--court-blue);
+  color: var(--text-light);
 }
 
 .report-chart-svg {
@@ -1524,7 +1587,7 @@ defineExpose({
 
 .chart-axis-label {
   font-size: 10px;
-  fill: var(--court-blue);
+  fill: var(--text-light);
 }
 
 .chart-axis-label-x {
@@ -1584,7 +1647,7 @@ defineExpose({
 }
 
 .tri-down {
-  color: #e63946;
+  color: var(--danger);
 }
 
 .tri-up {
@@ -1592,14 +1655,14 @@ defineExpose({
 }
 
 .stat-tilde {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .report-loading,
 .report-empty {
   text-align: center;
   padding: 2rem;
-  color: var(--court-blue);
+  color: var(--text-light);
   font-size: 1rem;
 }
 
@@ -1610,15 +1673,15 @@ defineExpose({
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 8px;
-  background: rgba(38, 70, 83, 0.08);
-  color: var(--court-blue);
+  background: var(--surface-muted);
+  color: var(--text-light);
   cursor: pointer;
   font-size: 0.9rem;
   margin-bottom: 1rem;
 }
 
 .report-back-btn:focus-visible {
-  background: rgba(38, 70, 83, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
 }
 
 /* Chart styles */
@@ -1628,7 +1691,7 @@ defineExpose({
 
 .report-chart-title {
   font-size: 0.85rem;
-  color: var(--court-blue);
+  color: var(--text-light);
   margin-bottom: 0.5rem;
   font-weight: 600;
 }
@@ -1640,7 +1703,7 @@ defineExpose({
 }
 
 .chart-axis-label {
-  fill: var(--court-blue);
+  fill: var(--text-light);
   font-size: 11px;
   font-family: inherit;
   opacity: 0.7;
@@ -1664,7 +1727,7 @@ defineExpose({
   align-items: center;
   gap: 4px;
   font-size: 0.75rem;
-  color: var(--court-blue);
+  color: var(--text-light);
   font-weight: 600;
 }
 
@@ -1690,7 +1753,7 @@ defineExpose({
   justify-content: center;
   gap: 5px;
   white-space: nowrap;
-  color: var(--court-blue);
+  color: var(--text-light);
   flex: 1;
   min-width: 0;
 }
@@ -1710,21 +1773,21 @@ defineExpose({
 }
 
 .tri-down {
-  color: rgba(255, 140, 100, 0.7);
+  color: var(--danger);
   font-size: 1rem;
   margin-right: 0.3rem;
   line-height: 1;
 }
 
 .tri-up {
-  color: rgba(100, 200, 130, 0.7);
+  color: var(--accent);
   font-size: 1rem;
   margin-right: 0.3rem;
   line-height: 1;
 }
 
 .stat-tilde {
-  color: var(--court-blue);
+  color: var(--text-light);
   font-weight: 600;
   font-size: 1rem;
 
@@ -1739,8 +1802,8 @@ defineExpose({
   width: 22px;
   aspect-ratio: 1;
   border-radius: 50%;
-  color: var(--court-blue);
-  /* background: var(--court-blue); */
+  color: var(--text-light);
+  /* background: var(--text-light); */
   flex-shrink: 0;
 }
 
@@ -1761,7 +1824,7 @@ defineExpose({
 }
 
 .stats-na {
-  color: var(--court-blue);
+  color: var(--text-light);
   font-size: 0.8rem;
   font-style: italic;
 }
@@ -1779,34 +1842,42 @@ defineExpose({
 .detail-td-date {
   text-align: left;
   white-space: nowrap;
-  color: var(--court-blue);
+  color: var(--text-light);
   font-weight: 600;
 }
 
 .detail-td-level {
-  color: var(--court-blue);
+  color: var(--text-light);
   font-weight: 600;
   font-size: 0.85rem;
 }
 
 .report-detail-table .stats-na {
-  color: rgba(38, 70, 83, 0.25);
+  color: var(--text-muted);
   font-weight: 400;
 }
 
 .report-table tbody tr:not(.report-class-header) {
-  height: 3.25rem;
+  height: 2.7625rem;
 }
 
 .report-table tbody tr:not(.report-class-header) > td {
   box-sizing: border-box;
-  height: 3.25rem;
-  padding-block: 0.375rem;
+  height: 2.7625rem;
+  padding-block: 0.31875rem;
   vertical-align: middle;
 }
 
 .stats-na--empty {
   display: block;
   height: 2.5rem;
+}
+</style>
+
+<style scoped>
+/* Keep column boundaries visible throughout the report table. */
+.report-table tr > th:not(:last-child),
+.report-table tr:not(.report-class-header) > td:not(:last-child) {
+  border-right: 1px solid var(--input-border);
 }
 </style>

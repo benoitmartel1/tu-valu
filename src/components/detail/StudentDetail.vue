@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from "vue";
 import StudentFields from "./StudentFields.vue";
-import { Trash2 } from "@lucide/vue";
+import { Trash2, User, IdCard, Component } from "@lucide/vue";
 import { supabase, getStudentPhotoPresignedUrl } from "../../supabase";
 
 const props = defineProps({
@@ -15,13 +15,30 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "deleted", "data-changed"]);
 
+const activeTab = ref("name");
+const detailTabs = [
+  { id: "name", label: "Identité", icon: User },
+  { id: "records", label: "Identifiants", icon: IdCard },
+  { id: "teams", label: "Équipes", icon: Component },
+];
+function navigateTabs(event, index) {
+  const offsets = { ArrowRight: 1, ArrowLeft: -1, Home: -index, End: detailTabs.length - 1 - index };
+  if (!(event.key in offsets)) return;
+  event.preventDefault();
+  const next = (index + offsets[event.key] + detailTabs.length) % detailTabs.length;
+  activeTab.value = detailTabs[next].id;
+  event.currentTarget.parentElement.children[next].focus();
+}
 const studentDetailEditing = ref(null);
 const studentPhotoUrl = ref(null);
+const studentPhotoLoaded = ref(false);
 const studentClassName = ref("");
 let photoUrlRequest = 0;
 
 async function loadStudentPhoto(photoUrl) {
   const requestId = ++photoUrlRequest;
+  studentPhotoLoaded.value = false;
+  studentPhotoUrl.value = null;
   if (!photoUrl) {
     studentPhotoUrl.value = null;
     return;
@@ -83,6 +100,7 @@ watch(
       }
     }
   },
+  { immediate: true },
 );
 
 function getInitials(firstname, lastname) {
@@ -180,7 +198,6 @@ async function deleteStudent() {
 
 <template>
   <div class="student-detail-column">
-    <div class="student-detail-layout">
       <!-- Photo placeholder -->
       <div v-if="studentDetailEditing" class="student-detail-photo-group">
         <div class="student-detail-photo">
@@ -189,14 +206,11 @@ async function deleteStudent() {
             :src="studentPhotoUrl"
             :alt="`${studentDetailEditing?.firstname || studentData?.firstname} ${studentDetailEditing?.lastname || studentData?.lastname}`"
             class="student-photo-img"
-            @error="
-              (e) => {
-                console.log('Image load error:', e.target.src);
-                e.target.style.display = 'none';
-              }
-            "
+            :class="{ 'is-loaded': studentPhotoLoaded }"
+            @load="studentPhotoLoaded = true"
+            @error="studentPhotoLoaded = false"
           />
-          <div v-else class="student-photo-circle">
+          <div class="student-photo-circle" aria-hidden="true">
             <span class="student-photo-initials">{{
               getInitials(
                 studentDetailEditing?.firstname || studentData?.firstname,
@@ -205,25 +219,33 @@ async function deleteStudent() {
             }}</span>
           </div>
         </div>
-        <div class="student-detail-identifiers">
-          <div v-if="studentClassName || studentData?.class_name">
-            <span>{{ studentClassName || studentData?.class_name }}</span>
-          </div>
-          <div
-            v-if="
-              studentDetailEditing.student_number || studentData?.student_number
-            "
-          >
-            <span>{{
-              studentDetailEditing.student_number || studentData?.student_number
-            }}</span>
-          </div>
-        </div>
+        <button
+          type="button"
+          class="header-trash-btn"
+          title="Supprimer l'élève"
+          aria-label="Supprimer l'élève"
+          @click="deleteStudent"
+        >
+          <Trash2 :size="20" />
+        </button>
       </div>
 
+    <div v-if="studentDetailEditing" class="student-detail-tabs" role="tablist" aria-label="Détails de l’élève">
+      <button v-for="(tab, index) in detailTabs" :key="tab.id"
+        :id="`student-tab-${tab.id}`" type="button" role="tab"
+        :aria-label="tab.label" :title="tab.label"
+        :aria-selected="activeTab === tab.id" :aria-controls="`student-panel-${tab.id}`"
+        :tabindex="activeTab === tab.id ? 0 : -1"
+        :class="['student-detail-tab', { active: activeTab === tab.id }]"
+        @click="activeTab = tab.id" @keydown="navigateTabs($event, index)">
+        <component :is="tab.icon" :size="36" :stroke-width="1.5" aria-hidden="true" />
+      </button>
+    </div>
+    <div v-if="studentDetailEditing" v-show="activeTab === 'name'" id="student-panel-name"
+      role="tabpanel" aria-labelledby="student-tab-name" class="student-detail-layout">
       <!-- Right column: fields -->
       <div v-if="studentDetailEditing" class="student-detail-fields">
-        <StudentFields :id="studentId" @changed="emit('data-changed')" />
+
         <div class="detail-section">
           <input
             v-model="studentDetailEditing.firstname"
@@ -254,6 +276,7 @@ async function deleteStudent() {
             <button
               class="gender-btn"
               :class="{ active: studentDetailEditing.gender === 'M' }"
+              :aria-pressed="studentDetailEditing.gender === 'M'"
               @click="toggleGender('M')"
             >
               M
@@ -261,6 +284,7 @@ async function deleteStudent() {
             <button
               class="gender-btn"
               :class="{ active: studentDetailEditing.gender === 'F' }"
+              :aria-pressed="studentDetailEditing.gender === 'F'"
               @click="toggleGender('F')"
             >
               F
@@ -324,32 +348,36 @@ async function deleteStudent() {
             </label>
           </div>
         </div>
-        <div
-          v-if="studentClassName || studentData.class_name"
-          class="detail-section"
-        >
-          <label class="detail-label">Classe</label>
-          <span class="class-pill">{{ studentData.class_name }}</span>
-        </div>
+
       </div>
     </div>
-    <!-- Navigation bar -->
-    <button
-      v-if="studentDetailEditing"
-      class="header-trash-btn header-trash-btn--absolute"
-      title="Supprimer l'élève"
-      @click="deleteStudent"
-    >
-      <Trash2 :size="36" />
-    </button>
+    <StudentFields v-if="studentDetailEditing" v-show="activeTab !== 'name'"
+      :key="studentId" :id="studentId" :section="activeTab" @changed="emit('data-changed')" />
+
   </div>
 </template>
 
 <style scoped>
+.student-detail-tabs { display: flex; justify-content: space-around; width: 100%; gap: 0.35rem; margin: 0.75rem 0 1rem; flex-shrink: 0; }
+.student-detail-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  width: 56px; height: 56px; padding: 0.5rem; border: none; border-radius: 999px;
+  background: transparent; color: var(--text-light); font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.student-detail-tab.active {
+  background: color-mix(in srgb, var(--modal-accent, var(--stadium-yellow)) 16%, transparent);
+}
+.student-detail-tab:focus-visible { outline: 2px solid var(--modal-accent, var(--stadium-yellow)); outline-offset: 2px; }
+
 .header-trash-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  margin-left: auto;
   background: none;
   border: none;
   cursor: pointer;
@@ -364,12 +392,18 @@ async function deleteStudent() {
 }
 
 .student-detail-photo {
+  position: relative;
+  width: 150px;
+  height: 150px;
   flex-shrink: 0;
 }
 
 .student-detail-photo-group {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  width: 100%;
+  padding: 1rem 0 0.5rem;
   gap: 1rem;
 }
 
@@ -396,10 +430,10 @@ async function deleteStudent() {
 }
 
 .student-photo-circle {
-  width: 90px;
-  height: 90px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
-  background: #1a3a5c;
+  background: var(--surface-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -407,17 +441,29 @@ async function deleteStudent() {
 }
 
 .student-photo-img {
-  width: 90px;
-  height: 90px;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 240ms ease;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   object-fit: cover;
   /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); */
 }
 
+.student-photo-img.is-loaded {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .student-photo-img { transition: none; }
+}
+
 .student-photo-initials {
   font-size: 1.8rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
@@ -433,52 +479,27 @@ async function deleteStudent() {
 
 .detail-label {
   display: block;
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-light);
   margin-bottom: 0.5rem;
 }
 
 .detail-input {
-  flex: 1;
   width: 100%;
-  padding: 0.6rem 0.75rem;
-  border-radius: 999px;
-  background: rgba(33, 37, 41, 0.6);
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--field-radius);
+  background: var(--input-surface);
   color: var(--text-light);
-  font-size: 1.5rem;
-  outline: none;
-  transition: all 0.2s;
-  font-family: inherit;
-  border: none;
+  font: inherit;
   box-sizing: border-box;
 }
 
-.detail-input:focus {
-  border-color: var(--stadium-yellow);
-  background: rgba(33, 37, 41, 0.7);
-}
-
 .detail-input::placeholder {
-  color: var(--text-light);
-  opacity: 0.4;
-}
-
-/* Custom name input with reduced opacity background */
-.detail-input--custom-name {
-  background: rgba(33, 37, 41, 0.5) !important;
-}
-
-.detail-input--custom-name:focus {
-  background: rgba(33, 37, 41, 0.6) !important;
-}
-
-.field-hint {
-  display: block;
-  margin-top: 0.35rem;
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.6);
-  font-style: italic;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .gender-selector {
@@ -487,25 +508,24 @@ async function deleteStudent() {
 }
 
 .gender-btn {
-  flex: 1;
-  height: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: none;
-  border-radius: 100%;
-  aspect-ratio: 1;
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
   color: var(--text-light);
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-family: inherit;
+  font: inherit;
+  font-weight: 600;
   cursor: pointer;
-  opacity: 0.5;
-  transform: scale(0.9);
 }
 
 .gender-btn.active {
-  background: rgba(33, 37, 41, 0.6);
-  opacity: 1;
-  transform: scale(1);
+  background: var(--modal-accent, #5599e0);
+  color: #ffffff;
 }
 
 /* Name display options */
@@ -537,13 +557,13 @@ async function deleteStudent() {
   width: 32px;
   height: 32px;
   border-radius: 100%;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
   flex-shrink: 0;
   transition: all 0.2s;
 }
 
 .checkbox-option:has(input:checked) .checkbox-circle {
-  background: rgba(33, 37, 41, 0.6);
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
 }
 
 .checkbox-option input[type="checkbox"] {
@@ -561,7 +581,7 @@ async function deleteStudent() {
   transform: translate(-50%, -50%);
   font-size: 1rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-light);
   opacity: 0;
   transition: opacity 0.2s;
 }

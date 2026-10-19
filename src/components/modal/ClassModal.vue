@@ -1,11 +1,13 @@
 <script setup>
 import { ref, watch, computed } from "vue";
-import { ChevronUp, Upload, Plus, Check, PenIcon } from "@lucide/vue";
+import { ChevronUp, ChevronDown, Upload, Plus, Check, PenIcon, X, LayoutGrid, List } from "@lucide/vue";
 import StudentAvatar from "../StudentAvatar.vue";
 import { preferences } from "../../stores/preferences";
+import { useUserFilter } from "../../stores/userFilters";
 import { belongsTo, fullName } from "../../lib/domain";
 import { mutate } from "../../lib/data";
 import { supabase } from "../../supabase";
+import Popup from "../popup/Popup.vue";
 import ClassDetail from "../detail/ClassDetail.vue";
 import StudentDetail from "../detail/StudentDetail.vue";
 import StudentImportModal from "../popup/StudentImportModal.vue";
@@ -32,42 +34,53 @@ const emit = defineEmits([
 const classDetailId = ref(null);
 const studentDetailId = ref(null);
 const studentImportOpen = ref(false);
+const levelPickerOpen = ref(false);
 const search = ref(""),
-  grade = ref(""),
+  grade = useUserFilter("niveau", value => typeof value === "string" && /^[0-6]$/.test(value)),
   bankSearch = ref(""),
-  bankOpen = ref(false),
+  attachingStudent = ref(false),
   selectionError = ref("");
-const filteredClasses = computed(() =>
-  props.classes.filter(
-    (c) =>
-      (!grade.value || c.school_grade === grade.value) &&
-      c.name
-        .toLocaleLowerCase("fr")
-        .includes(search.value.toLocaleLowerCase("fr")),
-  ),
-);
-const grades = computed(() =>
-  [...new Set(props.classes.map((c) => c.school_grade).filter(Boolean))].sort(),
-);
-const bankStudents = computed(() =>
-  props.allStudents.filter(
-    (s) =>
-      !belongsTo(s, props.selectedClassId) &&
-      (fullName(s) + " " + (s.record_number || ""))
-        .toLocaleLowerCase("fr")
-        .includes(bankSearch.value.toLocaleLowerCase("fr")),
-  ),
-);
+const filteredClasses = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase("fr");
+  const startsWithDigit = /^\d/.test(query);
+  return props.classes.filter((c) => {
+    const name = c.name.trim().toLocaleLowerCase("fr");
+    const matchesSearch = startsWithDigit
+      ? name.startsWith(query)
+      : name.includes(query);
+    const matchesGrade = !grade.value ||
+      name.startsWith(grade.value);
+    return matchesSearch && matchesGrade;
+  });
+});
+const grades = Array.from({ length: 7 }, (_, level) => String(level));
+const normalizeSearch = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
+const bankStudents = computed(() => {
+  const query = normalizeSearch(bankSearch.value.trim());
+  if (!query) return [];
+  const terms = query.split(/\s+/);
+  return props.allStudents.filter((student) => !belongsTo(student, props.selectedClassId) &&
+    terms.every((term) => normalizeSearch(fullName(student) + " " + (student.record_number || "")).includes(term)))
+    .sort((a, b) => fullName(a).localeCompare(fullName(b), "fr"));
+});
+watch(() => props.selectedClassId, () => {
+  bankSearch.value = "";
+  selectionError.value = "";
+});
 async function attachStudent(student) {
+  const classId = props.selectedClassId;
+  if (!classId || attachingStudent.value || belongsTo(student, classId)) return;
+  attachingStudent.value = true;
+  selectionError.value = "";
   try {
-    await mutate(
-      supabase
-        .from("tu_student_classes")
-        .insert({ student_id: student.id, class_id: props.selectedClassId }),
-    );
+    await mutate(supabase.from("tu_student_classes")
+      .insert({ student_id: student.id, class_id: classId }));
+    if (props.selectedClassId === classId) bankSearch.value = "";
     emit("data-changed");
   } catch (e) {
     selectionError.value = e.message;
+  } finally {
+    attachingStudent.value = false;
   }
 }
 
@@ -222,26 +235,31 @@ function onStudentImported() {
                 <Plus :size="20" :stroke-width="3" />
               </button>
             </div>
-            <div class="feature-fields">
-              <input
-                v-model="search"
-                placeholder="Rechercher un groupe"
-                aria-label="Rechercher un groupe"
-              />
-              <select v-model="grade" aria-label="Niveau scolaire">
-                <option value="">Tous les niveaux</option>
-                <option v-for="g in grades" :key="g" :value="g">{{ g }}</option>
-              </select>
-              <button @click="emit('deselect-all')">Tout désélectionner</button>
-              <small
-                >Sélection :
-                {{
-                  classes
-                    .filter((c) => checkedClassIds.has(c.id))
-                    .map((c) => c.name)
-                    .join(", ") || "Aucun groupe"
-                }}</small
-              >
+            <div class="class-filter-row">
+              <div class="class-search-bar">
+                <input v-model="search" placeholder="Rechercher un groupe" aria-label="Rechercher un groupe" />
+                <div class="class-level-picker"
+                  @keydown.esc.stop.prevent="levelPickerOpen = false"
+                  @focusout="!$event.currentTarget.contains($event.relatedTarget) && (levelPickerOpen = false)">
+                  <button type="button" class="class-level-trigger"
+                    aria-label="Niveau scolaire" :aria-expanded="levelPickerOpen"
+                    aria-controls="class-level-grid"
+                    @click="levelPickerOpen = !levelPickerOpen">
+                    <span>{{ grade === "" ? "Niveau" : grade }}</span>
+                    <ChevronDown :size="14" aria-hidden="true" />
+                  </button>
+                  <div v-if="levelPickerOpen" id="class-level-grid" class="class-level-grid" role="group" aria-label="Choisir un niveau">
+                    <button v-for="g in grades" :key="g" type="button"
+                      :aria-pressed="grade === g" :aria-label="'Niveau ' + g"
+                      @click="grade = g; levelPickerOpen = false">{{ g }}</button>
+                    <button type="button" class="class-level-all" :aria-pressed="grade === ''"
+                      aria-label="Tous les niveaux" @click="grade = ''; levelPickerOpen = false">X</button>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="row-checkbox class-clear-selection" aria-label="Effacer la recherche, le niveau et les sélections" title="Tout effacer" @click="search = ''; grade = ''; levelPickerOpen = false; emit('deselect-all')">
+                <X :size="20" :stroke-width="3" />
+              </button>
             </div>
             <div class="class-list">
               <div v-for="cls in filteredClasses" :key="cls.id">
@@ -282,24 +300,9 @@ function onStudentImported() {
           <div class="students-column">
             <Transition name="fade-in" mode="out-in">
               <!-- Show ClassDetail form when editing a class -->
-              <div
-                v-if="classDetailId !== null"
-                :key="'class-detail'"
-                class="class-detail-container"
-              >
-                <ClassDetail
-                  :key="classDetailId"
-                  @data-changed="emit('data-changed')"
-                  :class-id="classDetailId === 'new' ? null : classDetailId"
-                  :all-students="allStudents"
-                  @close="classDetailId = null"
-                  @saved="onClassDetailSaved"
-                  @duplicated="classDetailId = $event"
-                  @deleted="onClassDetailDeleted"
-                />
-              </div>
+
               <!-- Otherwise show student list -->
-              <div v-else :key="'student-list'" class="students-column-content">
+              <div :key="'student-list'" class="students-column-content">
                 <Transition name="fade-in" mode="out-in">
                   <div
                     :key="selectedClassId || 'no-class'"
@@ -309,45 +312,35 @@ function onStudentImported() {
                       <h3>
                         {{ selectedClassId ? `Élèves` : "" }}
                       </h3>
-                      <button
-                        v-if="selectedClassId"
-                        class="picker-item picker-item--inline add-btn"
-                        @click="addStudent(selectedClassId)"
-                      >
-                        <Plus :size="20" :stroke-width="3" />
-                      </button>
+                      <div v-if="selectedClassId" class="student-header-actions">
+                        <button class="picker-item picker-item--inline add-btn"
+                          :title="preferences.gallery ? 'Vue liste' : 'Vue galerie'"
+                          :aria-label="preferences.gallery ? 'Vue liste' : 'Vue galerie'"
+                          :aria-pressed="preferences.gallery"
+                          @click="preferences.gallery = !preferences.gallery">
+                          <List v-if="preferences.gallery" :size="20" />
+                          <LayoutGrid v-else :size="20" />
+                        </button>
+                        <button class="picker-item picker-item--inline add-btn"
+                          title="Créer un élève" aria-label="Créer un élève"
+                          @click="addStudent(selectedClassId)">
+                          <Plus :size="20" :stroke-width="3" />
+                        </button>
+                      </div>
                     </div>
-                    <div v-if="selectedClassId" class="feature-toolbar">
-                      <button
-                        @click="preferences.gallery = !preferences.gallery"
-                      >
-                        {{
-                          preferences.gallery ? "Vue liste" : "Vue galerie"
-                        }}</button
-                      ><button @click="bankOpen = !bankOpen">
-                        Ajouter depuis la banque
-                      </button>
-                    </div>
-                    <div
-                      v-if="bankOpen && selectedClassId"
-                      class="feature-fields"
-                    >
-                      <input
-                        v-model="bankSearch"
-                        placeholder="Nom ou n° de fiche"
-                      />
-                      <p v-if="selectionError" role="alert">
-                        {{ selectionError }}
-                      </p>
-                      <button
-                        v-for="student in bankStudents"
-                        :key="student.id"
-                        @click="attachStudent(student)"
-                      >
-                        {{ fullName(student) }} ·
-                        {{ student.record_number || "Sans n° de fiche" }} —
-                        Ajouter
-                      </button>
+                    <div v-if="selectedClassId" class="student-bank-search">
+                      <input v-model="bankSearch" type="search" placeholder="Nom ou n° de fiche"
+                        aria-label="Rechercher dans tous les élèves" :disabled="attachingStudent"
+                        @keydown.esc="bankSearch = ''" />
+                      <div v-if="bankSearch.trim()" class="student-bank-suggestions" :aria-busy="attachingStudent">
+                        <button v-for="student in bankStudents" :key="student.id"
+                          :disabled="attachingStudent" @click="attachStudent(student)">
+                          <span>{{ fullName(student) }}</span>
+                          <small>{{ student.record_number || 'Sans n° de fiche' }}</small>
+                        </button>
+                        <p v-if="!bankStudents.length">Aucun élève à ajouter</p>
+                      </div>
+                      <p v-if="selectionError" role="alert">{{ selectionError }}</p>
                     </div>
                     <div
                       v-if="selectedClassId"
@@ -364,18 +357,42 @@ function onStudentImported() {
                           :class="{
                             selected: studentDetailId === student.id,
                           }"
-                          @click="studentDetailId = student.id"
+                          @click="studentDetailId = studentDetailId === student.id ? null : student.id"
                         >
                           <!-- <span>{{ student.student_number }}</span> -->
                           <StudentAvatar
                             v-if="preferences.gallery"
                             :student="student"
                           />
+                          <span class="student-name" :title="fullName(student)">
+                            <template v-if="preferences.gallery">
+                              <span class="student-firstname">{{ student.firstname }}</span>
+                              <span class="student-lastname">{{ student.lastname }}</span>
                           <span
-                            >{{ student.firstname }}
-                            {{ student.lastname }}</span
+                            class="row-checkbox gallery-checkbox"
+                            :class="{
+                              checked:
+                                checkedStudentIds.has(student.id) ||
+                                (checkedClassIds.has(selectedClassId) &&
+                                  !excludedStudentIds.has(student.id)),
+                            }"
+                            @click.stop="handleStudentCheck(student)"
                           >
+                            <Check
+                              v-if="
+                                checkedStudentIds.has(student.id) ||
+                                (checkedClassIds.has(selectedClassId) &&
+                                  !excludedStudentIds.has(student.id))
+                              "
+                              :size="24"
+                              :stroke-width="3"
+                            />
+                          </span>
+                            </template>
+                            <template v-else>{{ fullName(student) }}</template>
+                          </span>
                           <span
+                            v-if="!preferences.gallery"
                             class="row-checkbox"
                             :class="{
                               checked:
@@ -395,6 +412,7 @@ function onStudentImported() {
                               :stroke-width="3"
                             />
                           </span>
+
                         </button>
                       </div>
                       <div
@@ -441,10 +459,160 @@ function onStudentImported() {
         @photos-imported="emit('data-changed')"
       />
     </div>
+    <Teleport to="body">
+      <Popup v-if="classDetailId !== null" title="Modifier le groupe" @close="classDetailId = null">
+                <ClassDetail
+                  :key="classDetailId"
+                  @data-changed="emit('data-changed')"
+                  :class-id="classDetailId === 'new' ? null : classDetailId"
+                  :all-students="allStudents"
+                  @close="classDetailId = null"
+                  @saved="onClassDetailSaved"
+                  @duplicated="classDetailId = $event"
+                  @deleted="onClassDetailDeleted"
+                />
+      </Popup>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
+.row-checkbox,
+.row-checkbox svg {
+  transition: none;
+  animation: none;
+}
+.student-header-actions { display: flex; gap: 0.4rem; }
+.student-bank-search { position: relative; flex-shrink: 0; margin-bottom: 0.65rem; }
+.student-bank-search input {
+  box-sizing: border-box; width: 100%; min-height: 38px;
+  padding: 0.5rem 0.75rem; border: none;
+  border-radius: var(--field-radius); background: var(--surface);
+  color: var(--text-light); font: inherit;
+}
+.student-bank-search input::placeholder { color: var(--text-light); opacity: 0.6; }
+.student-bank-suggestions {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 384px;
+  overflow-y: auto;
+  border-radius: var(--field-radius);
+  background: var(--surface);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.student-bank-suggestions button {
+  display: flex; flex-direction: column; width: 100%; text-align: left;
+  box-sizing: border-box; height: 48px; flex-shrink: 0;
+  justify-content: center;
+  padding: 0.5rem 0.75rem; margin: 0; border: none;
+  border-radius: 0; background: transparent;
+  color: var(--text-light); font: inherit; cursor: pointer;
+}
+.student-bank-suggestions span,
+.student-bank-suggestions small {
+  max-width: 100%; overflow: hidden; white-space: nowrap;
+}
+.student-bank-suggestions small { opacity: 0.65; }
+.student-bank-suggestions button + button {
+  border-top: 1px solid color-mix(in srgb, var(--text-light) 12%, transparent);
+}
+.student-bank-suggestions button:focus-visible {
+  outline: 2px solid var(--text-light);
+  outline-offset: -2px;
+}
+.student-bank-suggestions p { margin: 0; padding: 0.5rem 0.75rem; }
+
+.class-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+  padding-right: calc(0.3rem + 2px);
+}
+.class-search-bar {
+  position: relative;
+  padding-right: calc(7rem + 8px);
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  border: none;
+  border-radius: var(--field-radius);
+  background: var(--surface);
+}
+.class-search-bar input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-light);
+}
+.class-search-bar input::placeholder {
+  color: var(--text-light);
+  opacity: 0.5;
+}
+.class-level-picker {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 7rem;
+}
+.class-level-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  padding: 0 15px 0 1rem;
+  border: none;
+  border-radius: var(--field-radius);
+  background: color-mix(in srgb, var(--text-light) 20%, var(--student-bg));
+  color: var(--text-light);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.class-level-trigger svg { flex-shrink: 0; }
+.class-level-grid {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  width: 12rem;
+  max-width: 70vw;
+  padding: 0.5rem;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-light) 15%, transparent);
+}
+.class-level-grid button {
+  min-height: 36px;
+  border: none;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--text-light);
+}
+.class-level-grid button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--bg-dark);
+}
+.class-clear-selection {
+  flex: 0 0 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-light);
+}
+
 /* Modal background */
 .class-modal--bg {
   background: var(--student-bg);
@@ -547,16 +715,95 @@ function onStudentImported() {
 }
 
 .student-gallery {
+  --gallery-card-bg: color-mix(in srgb, var(--text-light) 20%, var(--student-bg));
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.7rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.student-gallery .student-item-row {
+  min-width: 0;
+  align-items: stretch;
 }
 .student-gallery .student-item {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 130px;
+  align-content: start;
+  gap: 0.4rem;
+  min-width: 0;
   border-radius: 12px;
-  padding: 0.7rem;
+  padding: 0.35rem;
+  background: var(--gallery-card-bg);
+}
+.student-gallery :deep(.student-avatar) {
+  grid-column: 1 / -1;
+  display: flex;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  min-width: 0;
+  flex: none;
+  border-radius: 8px;
+  font-size: 1.5rem;
+}
+.student-gallery :deep(.student-avatar img) {
+  transform: scale(1.3);
+  transform-origin: center;
+}
+.student-gallery .student-name {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  column-gap: 4px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  margin-top: -1.25rem;
+  padding: 0.3rem 0 0;
+  border-radius: 0;
+  background: var(--gallery-card-bg);
+  text-align: left;
+}
+.student-gallery .student-firstname,
+.student-gallery .student-lastname {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.student-gallery .student-firstname {
+  grid-column: 1 / -1;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.student-gallery .student-lastname {
+  min-width: 0;
+  min-height: 26px;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+}
+.student-gallery .row-checkbox {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border-width: 1.5px;
+  transform: translate(2px, 2px);
+  margin: 0;
+}
+.student-gallery .row-checkbox svg {
+  width: 19px;
+  height: 19px;
+}
+.student-gallery .picker-empty {
+  grid-column: 1 / -1;
 }
 </style>

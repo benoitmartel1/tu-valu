@@ -4,7 +4,7 @@ import { Copy } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import { mutate, duplicateRecord } from "../../lib/data";
 import { gradeScale } from "../../lib/domain";
-const props = defineProps({ id: String });
+const props = defineProps({ id: String, section: { type: String, default: "scale" } });
 const emit = defineEmits(["changed", "duplicated"]);
 const skill = ref(null),
   modifiers = ref(true),
@@ -97,9 +97,10 @@ async function duplicate() {
 </script>
 <template>
   <fieldset v-if="skill" class="feature-fields" :disabled="busy">
-    <legend>Notation</legend>
+    <legend class="skill-options-legend">{{ section === 'info' ? 'Informations' : 'Notation' }}</legend>
+    <div v-show="section === 'scale'" id="skill-panel-scale" role="tabpanel" aria-labelledby="skill-tab-scale" class="skill-options-panel">
     <label
-      >Type<select
+      >Type<PopupSelect
         v-model="skill.grading_mode"
         :disabled="hasHistory"
         @change="save(true)"
@@ -108,7 +109,7 @@ async function duplicate() {
         <option value="letter">Cotes</option>
         <option value="category">Observations / comportement</option>
         <option value="rubric">Grille multi-score (+3 à −3)</option>
-      </select></label
+      </PopupSelect></label
     >
     <small v-if="hasHistory"
       >Pour changer de type après des observations, dupliquez cette
@@ -134,6 +135,11 @@ async function duplicate() {
         @change="save(true)"
       ></textarea>
     </label>
+    <slot name="scale" :skill="skill" />
+    </div>
+    <div v-show="section === 'info'" id="skill-panel-info" role="tabpanel" aria-labelledby="skill-tab-info" class="skill-options-panel">
+    <slot name="info" />
+    <button @click="duplicate"><Copy :size="18" /> Dupliquer l’habileté</button>
     <label
       >Maximum de traces par élève<input
         type="number"
@@ -147,7 +153,13 @@ async function duplicate() {
       >Le maximum s’applique à tout l’historique de cette habileté. Une absence
       ne compte pas.</small
     >
-    <button @click="duplicate"><Copy :size="18" /> Dupliquer l’habileté</button>
+    
+    </div>
     <p v-if="error" role="alert">{{ error }}</p>
   </fieldset>
 </template>
+
+<style scoped>
+.skill-options-legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.skill-options-panel { display: flex; flex-direction: column; gap: 0.65rem; min-width: 0; }
+</style>

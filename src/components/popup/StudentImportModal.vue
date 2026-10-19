@@ -924,7 +924,7 @@ function close() {
               class="student-import-field"
             >
               <label :for="`import-${field.key}`">{{ field.label }}</label>
-              <select
+              <PopupSelect
                 :id="`import-${field.key}`"
                 v-model.number="columnMap[field.key]"
               >
@@ -936,7 +936,7 @@ function close() {
                   {{ header }}
                 </option>
                 <option :value="-1">Ignorer</option>
-              </select>
+              </PopupSelect>
             </div>
           </div>
 
@@ -1106,7 +1106,7 @@ function close() {
               </div>
               <div class="match-student-info">
                 <label v-if="!match.student && match.candidates?.length"
-                  >Choisir parmi les correspondances<select
+                  >Choisir parmi les correspondances<PopupSelect
                     @change="updateManualMatch(index, $event.target.value)"
                   >
                     <option value="">Choisir un élève</option>
@@ -1128,7 +1128,7 @@ function close() {
                           ?.name
                       }}
                     </option>
-                  </select></label
+                  </PopupSelect></label
                 >
                 <template v-if="match.student">
                   <span class="match-success"

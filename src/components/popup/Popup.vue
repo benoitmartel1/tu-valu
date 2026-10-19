@@ -13,6 +13,7 @@ const emit = defineEmits(["close"]);
     <div class="popup-modal">
       <div class="popup-header">
         <h2>{{ title }}</h2>
+        <div class="popup-header-actions"><slot name="actions" /></div>
         <button class="popup-close" @click="$emit('close')" :title="'Fermer'">
           <X :size="24" />
         </button>
@@ -56,6 +57,10 @@ const emit = defineEmits(["close"]);
   gap: 1rem;
   margin-bottom: 1rem;
   flex: 0 0 auto;
+}
+
+.popup-header-actions {
+  display: flex; align-items: center; gap: 0.5rem; margin-left: auto;
 }
 
 .popup-header h2 {

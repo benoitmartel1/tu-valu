@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from "vue";
 import { supabase } from "../../supabase";
 import { allRows, mutate } from "../../lib/data";
-const props = defineProps({ id: String });
+const props = defineProps({ id: [String, Number], section: { type: String, default: "records" } });
 const emit = defineEmits(["changed"]);
 const student = ref(null),
   classes = ref([]),
@@ -149,8 +149,9 @@ function assignTeam(event) {
 }
 </script>
 <template>
-  <fieldset class="feature-fields" v-if="student" :disabled="busy">
-    <legend>Fiche permanente</legend>
+  <fieldset class="feature-fields" v-if="student" :disabled="busy" :id="`student-panel-${section}`" role="tabpanel" :aria-labelledby="`student-tab-${section}`">
+    <legend>{{ section === "teams" ? "Groupes et équipes" : "Fiche permanente" }}</legend>
+    <template v-if="section === 'records'">
     <label
       >N° de fiche<input v-model="student.record_number" @change="save"
     /></label>
@@ -163,26 +164,29 @@ function assignTeam(event) {
         v-model="student.birth_date"
         @change="save"
     /></label>
-    <label
-      >Niveau d’habileté<select v-model="student.ability_level" @change="save">
+    </template>
+    <label v-if="section === 'teams'"
+      >Niveau d’habileté<PopupSelect v-model="student.ability_level" @change="save">
         <option :value="null">Non évalué</option>
         <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
-      </select></label
+      </PopupSelect></label
     >
     <div v-for="membership in memberships" :key="membership.class_id">
       {{ classes.find((c) => c.id === membership.class_id)?.name }}
       {{ classes.find((c) => c.id === membership.class_id)?.school_year }}
       <input
+        v-if="section === 'records'"
         v-model="membership.student_number"
         aria-label="Numéro dans ce groupe"
         @change="saveMembership(membership)"
       />
-      <button @click="removeClass(membership.class_id)">
+      <button v-if="section === 'teams'" @click="removeClass(membership.class_id)">
         Retirer du groupe
       </button>
     </div>
+    <template v-if="section === 'teams'">
     <label
-      >Ajouter à un groupe<select v-model="classToAdd">
+      >Ajouter à un groupe<PopupSelect v-model="classToAdd">
         <option value="">Choisir</option>
         <option
           v-for="group in classes.filter(
@@ -193,11 +197,11 @@ function assignTeam(event) {
         >
           {{ group.name }} {{ group.school_year }}
         </option>
-      </select></label
+      </PopupSelect></label
     ><button :disabled="!classToAdd" @click="addClass">Ajouter</button>
     <template v-if="teams.length">
       <label
-        >Ensemble d’équipes<select v-model="batch">
+        >Ensemble d’équipes<PopupSelect v-model="batch">
           <option v-for="(id, index) in batches" :key="id" :value="id">
             {{
               id === "legacy"
@@ -205,16 +209,18 @@ function assignTeam(event) {
                 : `Ensemble ${batches.length - index}`
             }}
           </option>
-        </select></label
+        </PopupSelect></label
       >
       <label
-        >Équipe<select :value="selectedTeam" @change="assignTeam">
+        >Équipe<PopupSelect :value="selectedTeam" @change="assignTeam">
           <option value="">Aucune</option>
           <option v-for="team in currentTeams" :key="team.id" :value="team.id">
             {{ team.name }}
           </option>
-        </select></label
+        </PopupSelect></label
       >
+    </template>
+    <p v-if="!teams.length">Aucune équipe disponible.</p>
     </template>
     <p v-if="error" role="alert">{{ error }}</p>
   </fieldset>

@@ -5,11 +5,13 @@ import {
   Plus,
   Check,
   PenIcon,
-  ArrowUp,
-  ArrowDown,
+  GripVertical,
+  X,
 } from "@lucide/vue";
 import { mutate } from "../../lib/data";
+import { useUserFilter } from "../../stores/userFilters";
 import { supabase } from "../../supabase";
+import Popup from "../popup/Popup.vue";
 import EvalDetail from "../detail/EvalDetail.vue";
 import SkillDetail from "../detail/SkillDetail.vue";
 
@@ -34,8 +36,12 @@ const emit = defineEmits([
 // ── Internal state ──────────────────────────────────────
 const editingEvalId = ref(null);
 const skillDetailId = ref(null);
+const search = ref("");
+const termPickerOpen = ref(false);
+const normalizeSearch = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
+const searchQuery = computed(() => normalizeSearch(search.value.trim()));
 const showArchived = ref(false),
-  termFilter = ref(""),
+  termFilter = useUserFilter("etape", value => [1, 2, 3].includes(value)),
   moveError = ref(""),
   moving = ref(false),
   draggedEval = ref(null);
@@ -49,7 +55,9 @@ const filteredEvaluations = computed(() =>
   orderedEvaluations.value.filter(
     (ev) =>
       Boolean(ev.archived_at) === showArchived.value &&
-      (!termFilter.value || Number(termFilter.value) === ev.school_term),
+      (!termFilter.value || Number(termFilter.value) === Number(ev.school_term)) &&
+      (!searchQuery.value || normalizeSearch(ev.title).includes(searchQuery.value) ||
+        props.skills.some((skill) => skill.evaluation_id === ev.id && normalizeSearch(skill.name).includes(searchQuery.value))),
   ),
 );
 async function moveEval(id, targetId) {
@@ -72,12 +80,75 @@ async function moveEval(id, targetId) {
     draggedEval.value = null;
   }
 }
-function moveBy(id, delta) {
+function startEvalDrag(event, id) {
+  if (!event.isPrimary || event.button !== 0 || moving.value) return;
+  const list = event.currentTarget.closest(".eval-sort-list");
+  const bounds = list.getBoundingClientRect();
+  const slots = [...list.querySelectorAll("[data-eval-id]")].map((row) => {
+    const rect = row.getBoundingClientRect();
+    return { id: row.dataset.evalId, top: rect.top - bounds.top, height: rect.height };
+  });
+  const from = slots.findIndex((slot) => slot.id === String(id));
+  if (from < 0) return;
+  event.currentTarget.setPointerCapture(event.pointerId);
+  draggedEval.value = {
+    id, pointerId: event.pointerId, startY: event.clientY, offset: 0,
+    targetId: id, active: false, slots, from, to: from,
+  };
+}
+function updateEvalDrag(event) {
+  const drag = draggedEval.value;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  drag.offset = event.clientY - drag.startY;
+  if (Math.abs(drag.offset) > 6) drag.active = true;
+  if (!drag.active) return;
+  const list = event.currentTarget.closest(".eval-sort-list");
+  const y = event.clientY - list.getBoundingClientRect().top;
+  let to = 0;
+  for (let index = 0; index < drag.slots.length; index++) {
+    if (index === drag.from) continue;
+    const slot = drag.slots[index];
+    if (y > slot.top + slot.height / 2) to++;
+  }
+  drag.to = to;
+  drag.targetId = filteredEvaluations.value.find((ev) => String(ev.id) === drag.slots[to].id)?.id || drag.id;
+}
+function evalDragStyle(id) {
+  const drag = draggedEval.value;
+  if (!drag?.active) return {};
+  const index = drag.slots.findIndex((slot) => slot.id === String(id));
+  let offset = 0;
+  if (index === drag.from) offset = drag.offset;
+  else if (drag.to > drag.from && index > drag.from && index <= drag.to) {
+    offset = drag.slots[index - 1].top - drag.slots[index].top;
+  } else if (drag.to < drag.from && index >= drag.to && index < drag.from) {
+    offset = drag.slots[index + 1].top - drag.slots[index].top;
+  }
+  return { transform: `translateY(${offset}px)` };
+}
+const insertionStyle = computed(() => {
+  const drag = draggedEval.value;
+  if (!drag?.active) return {};
+  const slot = drag.slots[drag.to];
+  // Mark the top edge of the space opened for the dragged item.
+  const top = drag.to > drag.from
+    ? slot.top + slot.height - drag.slots[drag.from].height
+    : slot.top;
+  return { top: `${top}px` };
+});
+function endEvalDrag(event) {
+  const drag = draggedEval.value;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  draggedEval.value = null;
+  if (drag.active) moveEval(drag.id, drag.targetId);
+}
+function reorderWithKeyboard(event, id) {
+  if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
   const rows = filteredEvaluations.value;
-  const target = rows[rows.findIndex((ev) => ev.id === id) + delta];
+  const target = rows[rows.findIndex((ev) => ev.id === id) + (event.key === "ArrowUp" ? -1 : 1)];
   if (target) moveEval(id, target.id);
 }
-
 // ── Helper functions ────────────────────────────────────
 function getSkillsForEval(evalId) {
   return props.skills.filter((s) => s.evaluation_id === evalId);
@@ -208,44 +279,58 @@ function onSkillDeleted(id) {
                 <Plus :size="20" :stroke-width="3" />
               </button>
             </div>
-            <div class="feature-fields">
-              <label
-                ><input type="checkbox" v-model="showArchived" />
-                Archives</label
-              ><select v-model="termFilter" aria-label="Étape">
-                <option value="">Toutes les étapes</option>
-                <option v-for="n in 3" :key="n" :value="n">
-                  Étape {{ n }}
-                </option>
-              </select>
-              <p v-if="moveError" role="alert">{{ moveError }}</p>
+            <div class="class-filter-row">
+              <div class="class-search-bar">
+                <input v-model="search" placeholder="Rechercher par habileté" aria-label="Rechercher par habileté" />
+                <div class="class-level-picker"
+                  @keydown.esc.stop.prevent="termPickerOpen = false"
+                  @focusout="!$event.currentTarget.contains($event.relatedTarget) && (termPickerOpen = false)">
+                  <button type="button" class="class-level-trigger" aria-label="Étape"
+                    :aria-expanded="termPickerOpen" aria-controls="eval-term-grid"
+                    @click="termPickerOpen = !termPickerOpen">
+                    {{ termFilter === '' ? 'Étape' : `Étape ${termFilter}` }}
+                  </button>
+                  <div v-if="termPickerOpen" id="eval-term-grid" class="class-level-grid" role="group" aria-label="Choisir une étape">
+                    <button v-for="n in 3" :key="n" type="button" :aria-pressed="termFilter === n"
+                      @click="termFilter = n; termPickerOpen = false">{{ n }}</button>
+                    <button type="button" :aria-pressed="termFilter === ''" aria-label="Toutes les étapes"
+                      @click="termFilter = ''; termPickerOpen = false"><X :size="16" /></button>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="row-checkbox class-clear-selection" aria-label="Effacer la recherche et l’étape" title="Effacer les filtres"
+                @click="search = ''; termFilter = ''; termPickerOpen = false"><X :size="20" :stroke-width="3" /></button>
             </div>
-            <div class="class-list">
+            <label class="eval-archive-filter"><input type="checkbox" v-model="showArchived" /> Archives</label>
+            <p v-if="moveError" role="alert">{{ moveError }}</p>
+            <div class="class-list eval-sort-list">
+              <div v-if="draggedEval?.active" class="eval-insertion-mark" :style="insertionStyle" aria-hidden="true"></div>
               <div
                 v-for="ev in filteredEvaluations"
                 :key="ev.id"
-                draggable="true"
-                @dragstart="draggedEval = ev.id"
-                @dragover.prevent
-                @drop.prevent="moveEval(draggedEval, ev.id)"
+                class="eval-sort-row picker-item class-item"
+                :data-eval-id="ev.id"
+                :style="evalDragStyle(ev.id)"
+                :class="{ selected: selectedEvalId === ev.id, 'eval-dragging': draggedEval?.active && draggedEval.id === ev.id }"
               >
-                <div class="feature-toolbar">
-                  <button
-                    :disabled="moving"
-                    @click="moveBy(ev.id, -1)"
-                    title="Monter"
-                  >
-                    <ArrowUp :size="16" /></button
-                  ><button
-                    :disabled="moving"
-                    @click="moveBy(ev.id, 1)"
-                    title="Descendre"
-                  >
-                    <ArrowDown :size="16" />
-                  </button>
-                </div>
                 <button
-                  class="picker-item class-item"
+                  type="button"
+                  class="eval-drag-handle"
+                  :disabled="moving"
+                  :aria-label="`Déplacer ${ev.title}`"
+                  title="Glisser pour réordonner"
+                  @pointerdown.stop="startEvalDrag($event, ev.id)"
+                  @pointermove="updateEvalDrag"
+                  @pointerup="endEvalDrag"
+                  @pointercancel="draggedEval = null"
+                  @lostpointercapture="draggedEval = null"
+                  @keydown="reorderWithKeyboard($event, ev.id)"
+                  @contextmenu.prevent
+                >
+                  <GripVertical :size="24" />
+                </button>
+                <button
+                  class="eval-item-content"
                   :class="{
                     selected: selectedEvalId === ev.id,
                   }"
@@ -288,22 +373,9 @@ function onSkillDeleted(id) {
           <div class="students-column">
             <Transition name="fade-in" mode="out-in">
               <!-- Show eval details when editing -->
-              <div
-                v-if="editingEvalId !== null"
-                :key="'eval-detail'"
-                class="class-detail-container"
-              >
-                <EvalDetail
-                  :key="editingEvalId"
-                  @data-changed="emit('data-changed')"
-                  :eval-id="editingEvalId"
-                  @saved="onEvalSaved"
-                  @duplicated="editingEvalId = $event"
-                  @deleted="onEvalDeleted"
-                />
-              </div>
+
               <!-- Otherwise show skills list -->
-              <div v-else :key="'skills-list'">
+              <div :key="'skills-list'">
                 <Transition name="fade-in" mode="out-in">
                   <div
                     :key="selectedEvalId || 'no-eval'"
@@ -389,10 +461,185 @@ function onSkillDeleted(id) {
         </div>
       </div>
     </div>
+    <Teleport to="body">
+      <Popup v-if="editingEvalId !== null" title="Modifier l’activité" @close="editingEvalId = null">
+      <template #actions><div id="eval-editor-actions" class="eval-editor-actions"></div></template>
+                <EvalDetail
+                  :key="editingEvalId"
+                  @data-changed="emit('data-changed')"
+                  :eval-id="editingEvalId"
+                  actions-target="#eval-editor-actions"
+                  @saved="onEvalSaved"
+                  @duplicated="editingEvalId = $event"
+                  @deleted="onEvalDeleted"
+                />
+      </Popup>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
+.class-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+  padding-right: calc(0.3rem + 2px);
+}
+.class-search-bar {
+  position: relative;
+  padding-right: calc(7rem + 8px);
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  border: none;
+  border-radius: var(--field-radius);
+  background: var(--surface);
+}
+.class-search-bar input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-light);
+}
+.class-search-bar input::placeholder {
+  color: var(--text-light);
+  opacity: 0.5;
+}
+.class-level-picker {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 7rem;
+}
+.class-level-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  padding: 0 15px 0 1rem;
+  border: none;
+  border-radius: var(--field-radius);
+  background: color-mix(in srgb, var(--text-light) 20%, var(--student-bg));
+  color: var(--text-light);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.class-level-trigger svg { flex-shrink: 0; }
+.class-level-grid {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  width: 12rem;
+  max-width: 70vw;
+  padding: 0.5rem;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-light) 15%, transparent);
+}
+.class-level-grid button {
+  min-height: 36px;
+  border: none;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--text-light);
+}
+.class-level-grid button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--bg-dark);
+}
+
+.class-clear-selection { flex: 0 0 32px; padding: 0; color: var(--text-muted); }
+.eval-archive-filter { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.65rem; font-size: 0.85rem; color: var(--text-muted); }
+
+.eval-editor-actions { display: flex; align-items: center; gap: 0.5rem; }
+.eval-sort-list { position: relative; isolation: isolate; }
+.eval-sort-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-left: 0.65rem;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+.eval-item-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eval-insertion-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--modal-accent, var(--text-light));
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+  z-index: 3;
+}
+.eval-insertion-mark::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--modal-accent, var(--text-light));
+}
+.eval-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-light);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.eval-drag-handle svg { opacity: 0.2; }
+.eval-drag-handle:active { cursor: grabbing; }
+.eval-drag-handle:focus-visible { outline: 2px solid var(--text-light); }
+.eval-sort-row.eval-dragging {
+  z-index: 2;
+  opacity: 0.85;
+  transition: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .eval-sort-row { transition: none; }
+}
 /* Modal background */
 .eval-bg {
   background: var(--stadium-yellow);

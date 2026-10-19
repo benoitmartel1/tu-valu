@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import SkillOptions from "./SkillOptions.vue";
-import { Trash2 } from "@lucide/vue";
+import Sneaker from "../Sneaker.js";
+import { Trash2, BarChart3 } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import RangeInput from "../RangeInput.vue";
 import IconSelector from "../popup/IconSelector.vue";
@@ -19,6 +20,19 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "deleted", "data-changed", "duplicated"]);
 
+const activeTab = ref("info");
+const detailTabs = [
+  { id: "info", label: "Informations", icon: Sneaker },
+  { id: "scale", label: "Type et échelle", icon: BarChart3 },
+];
+function navigateTabs(event, index) {
+  const offsets = { ArrowRight: 1, ArrowLeft: -1, Home: -index, End: detailTabs.length - 1 - index };
+  if (!(event.key in offsets)) return;
+  event.preventDefault();
+  const next = (index + offsets[event.key] + detailTabs.length) % detailTabs.length;
+  activeTab.value = detailTabs[next].id;
+  event.currentTarget.parentElement.children[next].focus();
+}
 const skillDetailEditing = ref(null);
 const showSkillIconPicker = ref(false);
 const editingNewSkillMin = ref(1);
@@ -194,60 +208,43 @@ function selectSkillIcon(iconName) {
 </script>
 
 <template>
-  <div>
-    <div class="student-detail-column">
-      <div :key="skillId" class="student-detail-layout">
-        <!-- Trash button -->
-        <button
-          v-if="skillDetailEditing"
-          class="header-trash-btn header-trash-btn--absolute"
-          title="Supprimer l'habileté"
-          @click="deleteSkill"
-        >
-          <Trash2 :size="36" />
-        </button>
-
-        <!-- Icon picker -->
-        <div class="student-detail-photo">
-          <div
-            v-if="skillDetailEditing"
-            class="student-photo-circle"
-            :class="{ 'picker-open': showSkillIconPicker }"
-            @click="showSkillIconPicker = !showSkillIconPicker"
-            title="Choisir une icône"
-          >
-            <img
-              v-if="skillDetailEditing?.icon || skillData?.icon"
-              :src="`${baseUrl}icons/skills/${skillDetailEditing?.icon || skillData?.icon}.svg`"
-              class="skill-icon-img"
-              alt=""
-            />
-            <span v-else class="student-photo-initials">?</span>
-          </div>
+  <div class="student-detail-column skill-detail">
+    <div v-if="skillDetailEditing" class="skill-detail-header">
+      <button type="button" class="student-photo-circle"
+        :class="{ 'picker-open': showSkillIconPicker }"
+        @click="showSkillIconPicker = !showSkillIconPicker" title="Choisir une icône" aria-label="Choisir une icône">
+        <img v-if="skillDetailEditing.icon" :src="`${baseUrl}icons/skills/${skillDetailEditing.icon}.svg`"
+          class="skill-icon-img" alt="" />
+        <Sneaker v-else :size="64" aria-hidden="true" />
+      </button>
+      <button type="button" class="header-trash-btn" title="Supprimer l’habileté" aria-label="Supprimer l’habileté" @click="deleteSkill">
+        <Trash2 :size="20" />
+      </button>
+    </div>
+    <div v-if="skillDetailEditing" class="skill-detail-tabs" role="tablist" aria-label="Détails de l’habileté">
+      <button v-for="(tab, index) in detailTabs" :key="tab.id" :id="`skill-tab-${tab.id}`"
+        type="button" role="tab" :aria-label="tab.label" :title="tab.label"
+        :aria-selected="activeTab === tab.id" :aria-controls="`skill-panel-${tab.id}`"
+        :tabindex="activeTab === tab.id ? 0 : -1" :class="['skill-detail-tab', { active: activeTab === tab.id }]"
+        @click="activeTab = tab.id" @keydown="navigateTabs($event, index)">
+        <component :is="tab.icon" :size="36" :stroke-width="1.5" aria-hidden="true" />
+      </button>
+    </div>
+    <SkillOptions v-if="skillDetailEditing" :key="skillId" :id="skillId" :section="activeTab"
+      @changed="emit('data-changed')" @duplicated="emit('duplicated', $event)">
+      <template #info>
+        <div class="detail-section">
+          <input v-model="skillDetailEditing.name" class="detail-input" placeholder="Nom de l’habileté"
+            aria-label="Nom de l’habileté" @blur="saveSkillDetail" />
         </div>
-
-        <!-- Right column: fields -->
-        <div v-if="skillDetailEditing" class="student-detail-fields">
-          <SkillOptions
-            :id="skillId"
-            @changed="emit('data-changed')"
-            @duplicated="emit('duplicated', $event)"
-          />
-          <div class="detail-section">
-            <label class="detail-label">Nom</label>
-            <input
-              v-model="skillDetailEditing.name"
-              class="detail-input"
-              placeholder="Nom de l'habileté"
-              @blur="saveSkillDetail"
-            />
-          </div>
-          <div class="detail-section">
-            <label class="detail-label">Échelle</label>
-            <div
+      </template>
+      <template #scale="{ skill: gradingSkill }">
+        <div class="detail-section">
+          <label class="detail-label">Échelle</label>
+          <div
               v-if="
-                !skillDetailEditing.grading_mode ||
-                skillDetailEditing.grading_mode === 'numeric'
+                !gradingSkill.grading_mode ||
+                gradingSkill.grading_mode === 'numeric'
               "
               class="skill-range-config"
             >
@@ -288,33 +285,29 @@ function selectSkillIcon(iconName) {
                 "
               />
             </div>
-          </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Icon selector modal -->
-    <IconSelector
-      v-if="showSkillIconPicker"
-      :show="showSkillIconPicker"
-      :icons="icons"
-      :base-url="baseUrl"
-      @close="showSkillIconPicker = false"
-      @select="selectSkillIcon"
-    />
+      </template>
+    </SkillOptions>
+    <IconSelector v-if="showSkillIconPicker" :show="showSkillIconPicker" :icons="icons" :base-url="baseUrl"
+      @close="showSkillIconPicker = false" @select="selectSkillIcon" />
   </div>
 </template>
 
 <style scoped>
 .header-trash-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-light);
+  display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; margin-left: auto; padding: 0;
+  background: none; border: none; cursor: pointer; color: var(--text-light);
 }
+.skill-detail-header { display: flex; align-items: flex-start; width: 100%; padding: 1rem 0 0.5rem; gap: 1rem; }
+.skill-detail-tabs { display: flex; justify-content: space-around; width: 100%; gap: 0.35rem; margin: 0.75rem 0 1rem; flex-shrink: 0; }
+.skill-detail-tab {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; padding: 0.5rem; border: none; border-radius: 999px;
+  background: transparent; color: var(--text-light); cursor: pointer;
+}
+.skill-detail-tab.active { background: color-mix(in srgb, var(--modal-accent, #55b880) 16%, transparent); }
+.skill-detail-tab:focus-visible { outline: 2px solid var(--modal-accent, #55b880); outline-offset: 2px; }
 
 .skill-range-config {
   display: flex;
@@ -390,14 +383,17 @@ function selectSkillIcon(iconName) {
 }
 
 .student-photo-circle {
-  width: 90px;
-  height: 90px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
-  background: #1a3a5c;
+  background: var(--surface-muted);
+  color: var(--text-light);
+  border: none;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -408,8 +404,8 @@ function selectSkillIcon(iconName) {
 }
 
 .skill-icon-img {
-  width: 90px;
-  height: 90px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   object-fit: cover;
 }

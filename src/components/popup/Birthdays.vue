@@ -3,8 +3,8 @@ import { computed, ref, onMounted, onUnmounted } from "vue";
 import Popup from "./Popup.vue";
 import StudentAvatar from "../StudentAvatar.vue";
 import { birthdayInDays, fullName } from "../../lib/domain";
-const props = defineProps({ students: Array, selectedStudents: Array });
-const all = ref(false),
+const props = defineProps({ students: Array, selectedStudents: Array, initialAll: Boolean });
+const all = ref(props.initialAll),
   upcoming = ref(false),
   today = ref(new Date());
 let timer;

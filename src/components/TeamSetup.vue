@@ -753,21 +753,18 @@ function getTeamColor(teamIndex) {
             :key="team.id"
             class="team-card"
           >
-            <div class="team-header">
+            <div class="team-header" :style="{ backgroundColor: getTeamColor(teamIndex) }">
+              <div class="color-picker-anchor">
               <!-- Color picker circle -->
-              <div
+              <button
+                type="button"
                 class="color-picker-circle"
                 :style="{ backgroundColor: getTeamColor(teamIndex) }"
                 @click="toggleColorPicker(teamIndex)"
+                :aria-label="`${team.students.length} élèves. Changer la couleur`"
+                :aria-expanded="showColorPicker === teamIndex"
                 title="Changer la couleur"
-              ></div>
-              <input
-                v-model="team.name"
-                @input="updateTeamName(teamIndex, team.name)"
-                class="team-name-input"
-                placeholder="Nom de l'équipe"
-              />
-
+              >{{ team.students.length }}</button>
               <!-- Color picker dropdown -->
               <div
                 v-if="showColorPicker === teamIndex"
@@ -781,7 +778,15 @@ function getTeamColor(teamIndex) {
                   @click="selectTeamColor(teamIndex, color)"
                 ></div>
               </div>
-              <span class="team-count">{{ team.students.length }}</span>
+              </div>
+              <input
+                v-model="team.name"
+                @input="updateTeamName(teamIndex, team.name)"
+                class="team-name-input"
+                placeholder="Nom de l'équipe"
+              />
+
+
             </div>
 
             <div class="team-students">
@@ -1083,39 +1088,50 @@ function getTeamColor(teamIndex) {
 }
 
 .team-card {
-  background: #5f5f5f;
-  /* background: rgba(20, 10, 2, 0.1); */
-  /* border: 2px solid rgba(255, 200, 80, 0.2); */
+  background: var(--surface-muted);
   border-radius: 16px;
-  padding: 1rem;
+  padding: 0;
   transition: background-color 0.2s;
-  /* border: 2px solid rgba(167, 165, 164, 1); */
 }
 
 .team-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: 16px 16px 0 0;
   gap: 0.5rem;
   position: relative;
 }
-
+.color-picker-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
 .color-picker-circle {
-  width: 24px;
-  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
   border-radius: 50%;
   cursor: pointer;
   flex-shrink: 0;
-  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline: 3px solid rgba(255, 255, 255, 0.9);
   outline-offset: 3px;
   /* box-shadow: 0 0 3px 4px rgba(241, 241, 241, 0.2); */
 }
 
 .color-picker-dropdown {
   position: absolute;
-  top: 100%;
-  right: 60px;
+  top: calc(100% + 10px);
+  left: 0;
+  right: auto;
   background: rgba(20, 10, 2, 0.95);
   border: 1.5px solid rgba(255, 200, 80, 0.3);
   border-radius: 12px;
@@ -1137,6 +1153,8 @@ function getTeamColor(teamIndex) {
 
 .team-name-input {
   flex: 1;
+  min-width: 0;
+  width: 0;
   padding: 0.5rem 0.75rem;
   border-radius: 999px;
   border: 1.5px solid rgba(255, 200, 80, 0.2);
@@ -1164,6 +1182,7 @@ function getTeamColor(teamIndex) {
 }
 
 .team-students {
+  padding: 0 1rem 1rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -1217,5 +1236,12 @@ function getTeamColor(teamIndex) {
   white-space: nowrap;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   pointer-events: none;
+}
+/* Match the class selection color for all draggable student names. */
+.student-pill,
+.unassigned-student-pill,
+.drag-ghost {
+  background: var(--class-accent);
+  color: #ffffff;
 }
 </style>

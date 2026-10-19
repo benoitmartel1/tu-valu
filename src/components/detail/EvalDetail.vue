@@ -6,6 +6,7 @@ import { supabase } from "../../supabase";
 
 const props = defineProps({
   evalId: { type: String, default: null },
+  actionsTarget: { type: String, default: null },
 });
 
 const emit = defineEmits(["saved", "deleted", "duplicated", "data-changed"]);
@@ -99,28 +100,21 @@ async function deleteEval() {
 
 <template>
   <div class="eval-detail">
-    <RecordTools
-      v-if="evalId"
-      kind="evaluation"
-      :id="evalId"
-      @changed="emit('data-changed')"
-      @duplicated="emit('duplicated', $event)"
-    />
-    <div v-if="loading && !evalTitle" class="detail-loading"></div>
-    <template v-else>
-      <div class="detail-section">
-        <div class="row">
-          <!-- <label class="detail-label" for="eval-title">Titre</label> -->
+    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget">
           <button
             v-if="!isNewEval"
             class="btn-icon btn-icon--delete-eval"
             title="Supprimer l'activité"
+            aria-label="Supprimer l'activité"
             :disabled="loading"
             @click="deleteEval"
           >
-            <Trash2 :size="32" />
+            <Trash2 :size="20" />
           </button>
-        </div>
+    </Teleport>
+    <div v-if="loading && !evalTitle" class="detail-loading"></div>
+    <template v-else>
+      <div class="detail-section">
         <div class="row">
           <input
             id="eval-title"
@@ -132,6 +126,14 @@ async function deleteEval() {
             @keyup.enter="saveEval"
           />
         </div>
+    <RecordTools
+      v-if="evalId"
+      kind="evaluation"
+      :id="evalId"
+      :actions-target="actionsTarget"
+      @changed="emit('data-changed')"
+      @duplicated="emit('duplicated', $event)"
+    />
         <div class="row">
           <span class="detail-label">Habiletés</span>
           <span class="student-count">{{ skillCount }}</span>
@@ -197,7 +199,7 @@ async function deleteEval() {
   background: rgba(33, 37, 41, 0.6);
   color: var(--text-light);
   font: inherit;
-  font-size: 1.5rem;
+  font-size: 1rem;
   outline: none;
 }
 
@@ -211,7 +213,9 @@ async function deleteEval() {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  padding: 0.3rem;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -220,7 +224,7 @@ async function deleteEval() {
 }
 
 .btn-icon--delete-eval {
-  color: white;
+  color: var(--text-light);
 }
 
 .btn-icon:disabled {
