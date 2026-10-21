@@ -6,12 +6,15 @@ import {
   Plus,
   Check,
   PenIcon,
-  GripVertical,
+  Equal,
+  Archive,
   X,
 } from "@lucide/vue";
 import { mutate } from "../../lib/data";
 import { useUserFilter } from "../../stores/userFilters";
 import { supabase } from "../../supabase";
+import FavoriteButton from "../FavoriteButton.vue";
+import { useFavorites } from "../../stores/favorites";
 import Popup from "../popup/Popup.vue";
 import EvalDetail from "../detail/EvalDetail.vue";
 import SkillDetail from "../detail/SkillDetail.vue";
@@ -47,16 +50,31 @@ const showArchived = ref(false),
   moveError = ref(""),
   moving = ref(false),
   draggedEval = ref(null);
-const orderedEvaluations = computed(() =>
+const optimisticOrder = ref(null);
+const savedEvaluations = computed(() =>
   [...props.evaluations].sort(
     (a, b) =>
       a.sort_order - b.sort_order || a.title.localeCompare(b.title, "fr"),
   ),
 );
+const orderedEvaluations = computed(() => {
+  if (!optimisticOrder.value) return savedEvaluations.value;
+  const positions = new Map(optimisticOrder.value.map((id, index) => [id, index]));
+  return [...savedEvaluations.value].sort((a, b) =>
+    (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+});
+watch(savedEvaluations, (rows) => {
+  if (optimisticOrder.value && rows.length === optimisticOrder.value.length &&
+      rows.every((row, index) => row.id === optimisticOrder.value[index])) {
+    optimisticOrder.value = null;
+  }
+});
+const { onlyFavorites, isFavorite, toggleFavorite } = useFavorites("activities");
 const filteredEvaluations = computed(() =>
   orderedEvaluations.value.filter(
     (ev) =>
       Boolean(ev.archived_at) === showArchived.value &&
+      (!onlyFavorites.value || isFavorite(ev.id)) &&
       (!termFilter.value || Number(termFilter.value) === Number(ev.school_term)) &&
       (!searchQuery.value || normalizeSearch(ev.title).includes(searchQuery.value) ||
         props.skills.some((skill) => skill.evaluation_id === ev.id && normalizeSearch(skill.name).includes(searchQuery.value))),
@@ -70,12 +88,15 @@ async function moveEval(id, targetId) {
   if (from < 0 || to < 0) return;
   ids.splice(from, 1);
   ids.splice(to, 0, id);
+  const previousOrder = optimisticOrder.value;
+  optimisticOrder.value = ids;
   moving.value = true;
   moveError.value = "";
   try {
     await mutate(supabase.rpc("tu_reorder_evaluations", { ids }));
     emit("data-changed");
   } catch (e) {
+    optimisticOrder.value = previousOrder;
     moveError.value = e.message;
   } finally {
     moving.value = false;
@@ -173,7 +194,7 @@ watch(
   () => props.selectedEvalId,
   (newId, oldId) => {
     // When a different evaluation is selected, close any open detail views
-    if (newId !== oldId && newId !== null) {
+    if (newId !== oldId) {
       editingEvalId.value = null;
       skillDetailId.value = null;
     }
@@ -275,12 +296,23 @@ function onSkillDeleted(id) {
           <div class="class-column">
             <div class="column-header">
               <h3>Moyens d'action</h3>
+              <div class="favorite-header-actions">
+                <button type="button" class="picker-item picker-item--inline add-btn archive-toggle"
+                  :class="{ 'archive-toggle--active': showArchived }"
+                  :aria-pressed="showArchived"
+                  :aria-label="showArchived ? 'Afficher les activités courantes' : 'Afficher les archives'"
+                  :title="showArchived ? 'Afficher les activités courantes' : 'Afficher les archives'"
+                  @click="showArchived = !showArchived">
+                  <Archive :size="20" />
+                </button>
+              <FavoriteButton :active="!!onlyFavorites" :label="onlyFavorites ? 'Afficher toutes les activités' : 'Afficher les activités favorites'" @toggle="onlyFavorites = !onlyFavorites" />
               <button
                 class="picker-item picker-item--inline add-btn"
                 @click="addEval"
               >
                 <Plus :size="20" :stroke-width="3" />
               </button>
+              </div>
             </div>
             <div class="class-filter-row">
               <div class="class-search-bar">
@@ -304,9 +336,10 @@ function onSkillDeleted(id) {
               <button type="button" class="row-checkbox class-clear-selection" aria-label="Effacer la recherche et l’étape" title="Effacer les filtres"
                 @click="search = ''; termFilter = ''; termPickerOpen = false"><X :size="20" :stroke-width="3" /></button>
             </div>
-            <label class="eval-archive-filter"><input type="checkbox" v-model="showArchived" /> Archives</label>
+
             <p v-if="moveError" role="alert">{{ moveError }}</p>
-            <div class="class-list eval-sort-list">
+            <p v-if="onlyFavorites && !filteredEvaluations.length" role="status">Aucune activité favorite ne correspond aux filtres.</p>
+            <div class="class-list eval-sort-list" :class="{ 'eval-sort-list--dragging': draggedEval?.active }">
               <div v-if="draggedEval?.active" class="eval-insertion-mark" :style="insertionStyle" aria-hidden="true"></div>
               <div
                 v-for="ev in filteredEvaluations"
@@ -330,8 +363,9 @@ function onSkillDeleted(id) {
                   @keydown="reorderWithKeyboard($event, ev.id)"
                   @contextmenu.prevent
                 >
-                  <GripVertical :size="24" />
+                  <Equal :size="24" />
                 </button>
+                <FavoriteButton compact :active="isFavorite(ev.id)" :label="(isFavorite(ev.id) ? 'Retirer des favoris : ' : 'Ajouter aux favoris : ') + ev.title" @toggle="toggleFavorite(ev.id)" />
                 <button
                   class="eval-item-content"
                   :class="{
@@ -406,7 +440,7 @@ function onSkillDeleted(id) {
                         <button
                           class="picker-item student-item"
                           :class="{ selected: skillDetailId === skill.id }"
-                          @click="skillInitialTab = 'scale'; skillDetailId = skill.id"
+                          @click="skillInitialTab = 'scale'; skillDetailId = skillDetailId === skill.id ? null : skill.id"
                         >
                           <span>{{ skill.name }}</span>
                           <span
@@ -484,6 +518,9 @@ function onSkillDeleted(id) {
 </template>
 
 <style scoped>
+.eval-bg :deep(.favorite-button.favorite-button--active) {
+  color: var(--modal-accent, #55b880);
+}
 .class-filter-row {
   display: flex;
   align-items: center;
@@ -567,7 +604,7 @@ function onSkillDeleted(id) {
 }
 
 .class-clear-selection { flex: 0 0 32px; padding: 0; color: var(--text-muted); }
-.eval-archive-filter { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.65rem; font-size: 0.85rem; color: var(--text-muted); }
+:global(:root .picker-screen--modal .archive-toggle.archive-toggle--active) { background: var(--class-accent); color: #ffffff; }
 
 .eval-editor-actions { display: flex; align-items: center; gap: 0.5rem; }
 .eval-sort-list { position: relative; isolation: isolate; }
@@ -578,6 +615,8 @@ function onSkillDeleted(id) {
   padding-left: 0.65rem;
   gap: 0.2rem;
   flex-shrink: 0;
+}
+.eval-sort-list--dragging .eval-sort-row {
   transition: transform 160ms ease;
 }
 .eval-item-content {

@@ -4,7 +4,7 @@
  */
 
 header('Content-Type: application/json');
-$allowedOrigins = ['http://localhost:5173', 'https://dev.benoitmartel.com'];
+$allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://dev.benoitmartel.com'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($origin, $allowedOrigins, true)) {
     header('Access-Control-Allow-Origin: ' . $origin);

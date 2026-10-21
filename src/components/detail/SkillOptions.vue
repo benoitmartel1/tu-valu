@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { Copy, ChevronLeft, ChevronRight } from "@lucide/vue";
+import { ChevronLeft, ChevronRight } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import { mutate, duplicateRecord } from "../../lib/data";
 import ScalePreview from "../ScalePreview.vue";
@@ -15,7 +15,7 @@ const skill = ref(null),
   hasHistory = ref(false);
 const letterMin = ref("D"), letterMax = ref("A"), letterStep = ref(1);
 const letterGrades = computed(() => {
-  const letters = Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ").reverse();
+  const letters = Array.from("ABCDE").reverse();
   return modifiers.value
     ? letters.flatMap((letter) => [letter + "-", letter, letter + "+"])
     : letters;
@@ -154,6 +154,7 @@ async function duplicate() {
     busy.value = false;
   }
 }
+defineExpose({ duplicate, busy });
 </script>
 <template>
   <fieldset v-if="skill" class="feature-fields skill-options" :disabled="busy">
@@ -221,7 +222,6 @@ async function duplicate() {
     </div>
     <div v-show="section === 'info'" id="skill-panel-info" role="tabpanel" aria-labelledby="skill-tab-info" class="skill-options-panel">
     <slot name="info" />
-    <button @click="duplicate"><Copy :size="18" /> Dupliquer l’habileté</button>
     <label
       >Maximum de traces par élève<input
         type="number"

@@ -31,6 +31,7 @@ if %errorlevel% equ 0 (
     echo.
     echo Allowed Origins:
     echo    - http://localhost:5173
+echo    - http://localhost:5174
     echo    - https://dev.benoitmartel.com
     echo.
     echo Allowed Methods: POST, PUT, GET, HEAD

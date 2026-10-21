@@ -1,15 +1,17 @@
 <script setup>
+import { resizeReportColumns } from "../../lib/reportColumns.js";
 import LoadingPopup from "../popup/LoadingPopup.vue";
 import { ref, computed, watch, onMounted } from "vue";
-import { ChevronUp, Download, ChevronLeft, Eye, User } from "@lucide/vue";
+import { ChevronUp, Download, ChevronLeft, Eye, User, Hash, Percent, CaseUpper } from "@lucide/vue";
 import { allRows, downloadCsv } from "../../lib/data";
 import {
   csvText,
   fullName,
   numericGrade,
-  displayGrade,
 } from "../../lib/domain";
 import { supabase } from "../../supabase";
+import { reportPercentage, reportGradeLabel, reportEventLabel } from "../../lib/reportGrades";
+import { useUserFilter } from "../../stores/userFilters";
 import EvaluationMarks from "../EvaluationMarks.vue";
 
 const props = defineProps({
@@ -29,6 +31,14 @@ const emit = defineEmits(["close"]);
 const reportLoading = ref(false);
 const reportError = ref("");
 const observerFilter = ref("");
+const conversion = useUserFilter("report-conversion", value => ["original", "percent", "letter"].includes(value));
+function reportSkill(skillId) { return reportData.value?.skills.find(skill => skill.id === skillId); }
+function formatReportEvent(event) { return reportEventLabel(event, reportSkill(event.skill_id), conversion.value || "original"); }
+function reportNumericGrade(event, skill) {
+  return !conversion.value || conversion.value === "original" ? numericGrade(event, skill) : reportPercentage(event, skill);
+}
+function reportDisplayGrade(value, skill) { return reportGradeLabel(value, conversion.value || "original", skill); }
+
 const nameFilter = ref("");
 const normalizeName = (value) => String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("fr");
 const filteredReportStudents = computed(() => {
@@ -60,13 +70,16 @@ const reportTableHeader = ref(null);
 const columnWidths = ref({});
 const resizingColumn = ref(null);
 let resizeStartX = 0;
-let resizeStartWidth = 0;
+let resizeStartWidths = {};
 const reportColumns = computed(() => [
   "student", ...(reportData.value?.skills || []).map((skill) => `skill-${skill.id}`),
 ]);
-const reportTableWidth = computed(() => reportColumns.value.every((key) => columnWidths.value[key])
-  ? `${reportColumns.value.reduce((total, key) => total + columnWidths.value[key], 0)}px`
-  : "100%");
+const columnWidthTotal = computed(() =>
+  reportColumns.value.reduce((total, key) => total + (columnWidths.value[key] || 0), 0));
+function reportColumnStyle(key) {
+  if (!reportColumns.value.every((column) => columnWidths.value[column])) return {};
+  return { width: `${columnWidths.value[key] / columnWidthTotal.value * 100}%` };
+}
 
 function captureColumnWidths() {
   const headers = reportTableHeader.value?.querySelectorAll("th");
@@ -77,26 +90,26 @@ function captureColumnWidths() {
 }
 
 function startColumnResize(event, key) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || key === reportColumns.value.at(-1)) return;
   event.preventDefault();
   captureColumnWidths();
   resizingColumn.value = key;
   resizeStartX = event.clientX;
-  resizeStartWidth = columnWidths.value[key];
+  resizeStartWidths = { ...columnWidths.value };
   event.currentTarget.setPointerCapture(event.pointerId);
 }
 
 function moveColumnResize(event) {
   const key = resizingColumn.value;
   if (!key) return;
-  columnWidths.value[key] = Math.max(120, resizeStartWidth + event.clientX - resizeStartX);
+  columnWidths.value = resizeReportColumns(resizeStartWidths, reportColumns.value, key, event.clientX - resizeStartX);
 }
 
 function resizeColumnWithKeyboard(event, key) {
   if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
   event.preventDefault();
   captureColumnWidths();
-  columnWidths.value[key] = Math.max(120, columnWidths.value[key] + (event.key === "ArrowRight" ? 16 : -16));
+  columnWidths.value = resizeReportColumns(columnWidths.value, reportColumns.value, key, event.key === "ArrowRight" ? 16 : -16);
 }
 
 watch(reportTableHeader, (header, _previous, onCleanup) => {
@@ -156,7 +169,9 @@ function compareReportStudents(a, b) {
   if (skillSort.value) {
     const { skillId, direction } = skillSort.value;
     const numericValue = (student) => {
-      const value = studentSkillLast(student.id, skillId);
+      const events = getStudentEvents(student.id).filter(event => event.skill_id === skillId);
+      const latest = [...events].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+      const value = latest ? reportNumericGrade(latest, reportSkill(skillId)) : null;
       if (value == null || value === "abs" || value === "") return null;
       const number = Number(value);
       return Number.isFinite(number) ? number : null;
@@ -375,22 +390,21 @@ function studentSkillLast(studentId, skillId) {
     (e) => e.skill_id === skillId,
   );
   if (evts.length === 0) return null;
-  return evts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
-    .level;
+  return formatReportEvent(evts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]);
 }
 
 function studentSkillMin(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
     .map((e) =>
-      numericGrade(
+      reportNumericGrade(
         e,
         reportData.value?.skills.find((sk) => sk.id === e.skill_id),
       ),
     )
     .filter((v) => v !== null && Number.isFinite(v));
   return vals.length > 0
-    ? displayGrade(
+    ? reportDisplayGrade(
         Math.min(...vals),
         reportData.value?.skills.find((sk) => sk.id === skillId),
       )
@@ -401,14 +415,14 @@ function studentSkillMax(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
     .map((e) =>
-      numericGrade(
+      reportNumericGrade(
         e,
         reportData.value?.skills.find((sk) => sk.id === e.skill_id),
       ),
     )
     .filter((v) => v !== null && Number.isFinite(v));
   return vals.length > 0
-    ? displayGrade(
+    ? reportDisplayGrade(
         Math.max(...vals),
         reportData.value?.skills.find((sk) => sk.id === skillId),
       )
@@ -419,14 +433,14 @@ function studentSkillAvg(studentId, skillId) {
   const vals = getStudentEvents(studentId)
     .filter((e) => e.skill_id === skillId)
     .map((e) =>
-      numericGrade(
+      reportNumericGrade(
         e,
         reportData.value?.skills.find((sk) => sk.id === e.skill_id),
       ),
     )
     .filter((v) => v !== null && Number.isFinite(v));
   if (vals.length === 0) return null;
-  return displayGrade(
+  return reportDisplayGrade(
     vals.reduce((a, b) => a + b, 0) / vals.length,
     reportData.value?.skills.find((sk) => sk.id === skillId),
   );
@@ -462,7 +476,7 @@ const studentChartData = computed(() => {
 
   const allLevels = events
     .map((e) =>
-      numericGrade(
+      reportNumericGrade(
         e,
         reportData.value?.skills.find((sk) => sk.id === e.skill_id),
       ),
@@ -473,8 +487,8 @@ const studentChartData = computed(() => {
   const yMin = Math.min(...allLevels);
   const yMax = Math.max(...allLevels);
   const yPad = Math.max((yMax - yMin) * 0.1, 0.5);
-  const yAxisMin = Math.floor(yMin - yPad);
-  const yAxisMax = Math.ceil(yMax + yPad);
+  const yAxisMin = conversion.value && conversion.value !== "original" ? 0 : Math.floor(yMin - yPad);
+  const yAxisMax = conversion.value && conversion.value !== "original" ? Math.max(100, Math.ceil(yMax / 10) * 10) : Math.ceil(yMax + yPad);
 
   const datasets = skills.map((skill, i) => {
     const data = sortedSessions.map((session) => {
@@ -483,7 +497,7 @@ const studentChartData = computed(() => {
       );
       const levels = sessionEvents
         .map((e) =>
-          numericGrade(
+          reportNumericGrade(
             e,
             reportData.value?.skills.find((sk) => sk.id === e.skill_id),
           ),
@@ -643,7 +657,7 @@ function exportAllReport() {
           ...studentColumns(students.get(e.student_id)),
           props.classes.find((c) => c.id === e.class_id)?.name || "",
           skills.get(e.skill_id).name,
-          e.level,
+          formatReportEvent(e),
           e.created_at,
           e.observer_name || "Inconnu",
           e.user_id || "",
@@ -702,6 +716,20 @@ defineExpose({
               <button type="button" :aria-pressed="groupByClass" @click="groupByClass = true">Par classe</button>
               <button type="button" :aria-pressed="!groupByClass" @click="groupByClass = false">Tous mélangés</button>
             </div>
+            <div class="report-conversion-filter" role="radiogroup" aria-label="Conversion des cotes">
+              <label class="report-conversion-option" title="Number — notes originales">
+                <input type="radio" name="report-conversion" value="original" :checked="!conversion || conversion === 'original'" aria-label="Number" @change="conversion = 'original'" />
+                <span><Hash :size="20" aria-hidden="true" /></span>
+              </label>
+              <label class="report-conversion-option" title="% — pourcentage">
+                <input type="radio" name="report-conversion" value="percent" :checked="conversion === 'percent'" aria-label="%" @change="conversion = 'percent'" />
+                <span><Percent :size="20" aria-hidden="true" /></span>
+              </label>
+              <label class="report-conversion-option" title="Letter — cotes E à A+">
+                <input type="radio" name="report-conversion" value="letter" :checked="conversion === 'letter'" aria-label="Letter" @change="conversion = 'letter'" />
+                <span><CaseUpper :size="20" aria-hidden="true" /></span>
+              </label>
+            </div>
             <label class="report-observer-filter" title="Observateur">
               <User :size="20" aria-hidden="true" />
               <PopupSelect v-model="observerFilter" aria-label="Observateur">
@@ -744,7 +772,7 @@ defineExpose({
                       reportData.skills.find((sk) => sk.id === event.skill_id)
                         ?.name
                     }}
-                    · {{ event.level }} · {{ event.observer_name || "Inconnu" }}
+                    · {{ formatReportEvent(event) }} · {{ event.observer_name || "Inconnu" }}
                     <span v-if="event.comment">— {{ event.comment }}</span>
                   </p>
                 </details>
@@ -810,15 +838,11 @@ defineExpose({
                       text-anchor="end"
                       class="chart-axis-label"
                     >
-                      {{
-                        (
-                          studentChartData.yAxisMin +
+                      {{ reportDisplayGrade(studentChartData.yAxisMin +
                           ((studentChartData.yAxisMax -
                             studentChartData.yAxisMin) *
                             (n - 1)) /
-                            4
-                        ).toFixed(1)
-                      }}
+                            4) }}
                     </text>
                     <!-- Lines -->
                     <path
@@ -1004,7 +1028,7 @@ defineExpose({
                         class="detail-td-level"
                       >
                         <template v-if="event.skill_id === skill.id">
-                          {{ event.level }}
+                          {{ formatReportEvent(event) }}
                         </template>
                         <span v-else class="stats-na">—</span>
                       </td>
@@ -1025,9 +1049,9 @@ defineExpose({
                 </div>
                 <template v-else>
                   <div class="report-table-scroll">
-                  <table class="report-table" :class="{ 'report-table--resizing': resizingColumn }" :style="{ width: reportTableWidth }">
+                  <table class="report-table" :class="{ 'report-table--resizing': resizingColumn }">
                     <colgroup>
-                      <col v-for="key in reportColumns" :key="key" :style="columnWidths[key] ? { width: `${columnWidths[key]}px` } : {}" />
+                      <col v-for="key in reportColumns" :key="key" :style="reportColumnStyle(key)" />
                     </colgroup>
                     <thead ref="reportTableHeader">
                       <tr>
@@ -1035,7 +1059,7 @@ defineExpose({
                           <button class="report-header-button" :aria-expanded="studentMenuOpen" @click="studentMenuOpen = !studentMenuOpen">
                             Élève <span aria-hidden="true">⌄</span>
                           </button>
-                          <span class="report-column-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionner la colonne Élève" tabindex="0"
+                          <span v-if="reportColumns.length > 1" class="report-column-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionner la colonne Élève" tabindex="0"
                             @pointerdown.stop="startColumnResize($event, 'student')" @pointermove="moveColumnResize" @pointerup="resizingColumn = null" @pointercancel="resizingColumn = null" @lostpointercapture="resizingColumn = null" @click.stop
                             @keydown="resizeColumnWithKeyboard($event, 'student')"></span>
                 <template v-if="studentMenuOpen">
@@ -1062,7 +1086,7 @@ defineExpose({
                           <span class="report-header-label">{{ skill.name }}</span>
                           <span v-if="skillSort?.skillId === skill.id" aria-hidden="true">{{ skillSort.direction === 'ascending' ? '↑' : '↓' }}</span>
                         </button>
-                        <span class="report-column-resizer" role="separator" aria-orientation="vertical" :aria-label="`Redimensionner la colonne ${skill.name}`" tabindex="0"
+                        <span v-if="`skill-${skill.id}` !== reportColumns.at(-1)" class="report-column-resizer" role="separator" aria-orientation="vertical" :aria-label="`Redimensionner la colonne ${skill.name}`" tabindex="0"
                           @pointerdown.stop="startColumnResize($event, `skill-${skill.id}`)" @pointermove="moveColumnResize" @pointerup="resizingColumn = null" @pointercancel="resizingColumn = null" @lostpointercapture="resizingColumn = null" @click.stop
                           @keydown="resizeColumnWithKeyboard($event, `skill-${skill.id}`)"></span>
                         </th>
@@ -1100,6 +1124,8 @@ defineExpose({
                               <EvaluationMarks
                                 v-else
                                 :events="getStudentEvents(student.id).filter((event) => event.skill_id === skill.id)"
+                                :format-event="formatReportEvent"
+                                :average-label="studentSkillAvg(student.id, skill.id) ?? '—'"
                               />
                             </template>
                             <span v-else class="stats-na--empty" aria-label="Aucune évaluation"></span>
@@ -1119,6 +1145,41 @@ defineExpose({
 </template>
 
 <style scoped>
+.report-conversion-filter,
+.report-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 3px;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.report-conversion-option { position: relative; cursor: pointer; }
+.report-conversion-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.report-conversion-option span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+.report-conversion-option input:checked + span,
+.report-group-toggle button[aria-pressed="true"] {
+  background: var(--modal-accent, #e5b82e);
+  color: #1f2328;
+}
+.report-conversion-option input:focus-visible + span {
+  outline: 2px solid var(--modal-accent, #e5b82e);
+  outline-offset: 2px;
+}
 .report-export-menu { position: relative; }
 .report-export-menu > summary { list-style: none; }
 .report-export-menu > summary::-webkit-details-marker { display: none; }
@@ -1225,29 +1286,21 @@ defineExpose({
   background: var(--report-surface);
   pointer-events: none;
 }
-.report-group-toggle {
-  display: inline-flex;
-  padding: 0.2rem;
-  border: 1px solid color-mix(in srgb, var(--text-light) 30%, transparent);
-  border-radius: 0.5rem;
-  gap: 0.2rem;
-}
+
 .report-group-toggle button {
   padding: 0.4rem 0.7rem;
   border: 0;
-  border-radius: 0.3rem;
+  border-radius: 999px;
+  min-height: 36px;
   background: transparent;
   color: var(--text-light);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
 }
-.report-group-toggle button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--text-light) 12%, transparent);
-  font-weight: 700;
-}
+
 .report-group-toggle button:focus-visible {
-  outline: 2px solid var(--text-light);
+  outline: 2px solid var(--modal-accent, #e5b82e);
   outline-offset: 2px;
 }
 .report-table-scroll {
@@ -1495,7 +1548,7 @@ defineExpose({
 }
 
 .report-td-count {
-  overflow: hidden;
+  overflow-x: auto;
   color: var(--text-light);
   font-weight: 600;
   font-size: 0.85rem;

@@ -2,6 +2,8 @@
 import { vGlideSelect } from "../../lib/glideSelect";
 import { ref, watch, computed } from "vue";
 import { ChevronUp, ChevronDown, Upload, Plus, Check, PenIcon, X, LayoutGrid, List } from "@lucide/vue";
+import FavoriteButton from "../FavoriteButton.vue";
+import { useFavorites } from "../../stores/favorites";
 import StudentAvatar from "../StudentAvatar.vue";
 import { preferences } from "../../stores/preferences";
 import { useUserFilter } from "../../stores/userFilters";
@@ -43,6 +45,7 @@ const search = ref(""),
   bankSearch = ref(""),
   attachingStudent = ref(false),
   selectionError = ref("");
+const { onlyFavorites, isFavorite, toggleFavorite } = useFavorites("classes");
 const filteredClasses = computed(() => {
   const query = search.value.trim().toLocaleLowerCase("fr");
   const startsWithDigit = /^\d/.test(query);
@@ -53,7 +56,7 @@ const filteredClasses = computed(() => {
       : name.includes(query);
     const matchesGrade = !grade.value ||
       name.startsWith(grade.value);
-    return matchesSearch && matchesGrade;
+    return matchesSearch && matchesGrade && (!onlyFavorites.value || isFavorite(c.id));
   });
 });
 const grades = Array.from({ length: 7 }, (_, level) => String(level));
@@ -62,7 +65,7 @@ const bankStudents = computed(() => {
   const query = normalizeSearch(bankSearch.value.trim());
   if (!query) return [];
   const terms = query.split(/\s+/);
-  return props.allStudents.filter((student) => !belongsTo(student, props.selectedClassId) &&
+  return props.allStudents.filter((student) => (!props.selectedClassId || !belongsTo(student, props.selectedClassId)) &&
     terms.every((term) => normalizeSearch(fullName(student) + " " + (student.record_number || "")).includes(term)))
     .sort((a, b) => fullName(a).localeCompare(fullName(b), "fr"));
 });
@@ -112,7 +115,7 @@ watch(
   () => props.selectedClassId,
   (newId, oldId) => {
     // When a different class is selected, close any open detail views
-    if (newId !== oldId && newId !== null) {
+    if (newId !== oldId) {
       classDetailId.value = null;
       studentDetailId.value = null;
     }
@@ -228,12 +231,15 @@ function onStudentImported() {
           <div class="class-column">
             <div class="column-header">
               <h3>Groupes</h3>
+              <div class="favorite-header-actions">
+              <FavoriteButton :active="!!onlyFavorites" :label="onlyFavorites ? 'Afficher tous les groupes' : 'Afficher les groupes favoris'" @toggle="onlyFavorites = !onlyFavorites" />
               <button
                 class="picker-item picker-item--inline add-btn"
                 @click="addClass"
               >
                 <Plus :size="20" :stroke-width="3" />
               </button>
+              </div>
             </div>
             <div class="class-filter-row">
               <div class="class-search-bar">
@@ -262,15 +268,19 @@ function onStudentImported() {
               </button>
             </div>
             <div class="class-list">
+              <p v-if="onlyFavorites && !filteredClasses.length" role="status">Aucun groupe favori ne correspond aux filtres.</p>
               <div v-for="cls in filteredClasses" :key="cls.id">
-                <button
+                <div role="button" tabindex="0" @keydown.enter.self.prevent="selectClass(cls.id)" @keydown.space.self.prevent="selectClass(cls.id)"
                   class="picker-item class-item"
                   :class="{
                     selected: selectedClassId === cls.id,
                   }"
                   @click="selectClass(cls.id)"
                 >
-                  <div>{{ cls.name }}</div>
+                  <div class="class-name-with-favorite">
+                    <FavoriteButton compact :active="isFavorite(cls.id)" :label="(isFavorite(cls.id) ? 'Retirer des favoris : ' : 'Ajouter aux favoris : ') + cls.name" @toggle="toggleFavorite(cls.id)" />
+                    <span>{{ cls.name }}</span>
+                  </div>
                   <div class="class-item-buttons">
                     <div
                       class="edit-class-btn-small"
@@ -292,7 +302,7 @@ function onStudentImported() {
                       />
                     </div>
                   </div>
-                </button>
+                </div>
               </div>
             </div>
           </div>
@@ -311,9 +321,9 @@ function onStudentImported() {
                   >
                     <div class="column-header">
                       <h3>
-                        {{ selectedClassId ? `Élèves` : "" }}
+                        Élèves
                       </h3>
-                      <div v-if="selectedClassId" class="student-header-actions">
+                      <div class="student-header-actions">
                         <button class="picker-item picker-item--inline add-btn"
                           :title="preferences.gallery ? 'Vue liste' : 'Vue galerie'"
                           :aria-label="preferences.gallery ? 'Vue liste' : 'Vue galerie'"
@@ -323,23 +333,23 @@ function onStudentImported() {
                           <LayoutGrid v-else :size="20" />
                         </button>
                         <button class="picker-item picker-item--inline add-btn"
-                          title="Créer un élève" aria-label="Créer un élève"
+                          title="Créer un élève" aria-label="Créer un élève" :disabled="!selectedClassId"
                           @click="addStudent(selectedClassId)">
                           <Plus :size="20" :stroke-width="3" />
                         </button>
                       </div>
                     </div>
-                    <div v-if="selectedClassId" class="student-bank-search">
+                    <div class="student-bank-search">
                       <input v-model="bankSearch" type="search" placeholder="Nom ou n° de fiche"
                         aria-label="Rechercher dans tous les élèves" :disabled="attachingStudent"
                         @keydown.esc="bankSearch = ''" />
                       <div v-if="bankSearch.trim()" class="student-bank-suggestions" :aria-busy="attachingStudent">
                         <button v-for="student in bankStudents" :key="student.id"
-                          :disabled="attachingStudent" @click="attachStudent(student)">
+                          :disabled="attachingStudent" @click="selectedClassId ? attachStudent(student) : (studentDetailId = student.id)">
                           <span>{{ fullName(student) }}</span>
                           <small>{{ student.record_number || 'Sans n° de fiche' }}</small>
                         </button>
-                        <p v-if="!bankStudents.length">Aucun élève à ajouter</p>
+                        <p v-if="!bankStudents.length">{{ selectedClassId ? 'Aucun élève à ajouter' : 'Aucun élève trouvé' }}</p>
                       </div>
                       <p v-if="selectionError" role="alert">{{ selectionError }}</p>
                     </div>
@@ -444,7 +454,7 @@ function onStudentImported() {
                   allStudents.find((s) => s.id === studentDetailId)
                 "
                 :all-students="allStudents"
-                :students="getCurrentClassStudents()"
+                :students="selectedClassId ? getCurrentClassStudents() : bankStudents"
                 :has-student-selection="
                   checkedClassIds.size > 0 || checkedStudentIds.size > 0
                 "
@@ -481,6 +491,7 @@ function onStudentImported() {
 </template>
 
 <style scoped>
+.class-name-with-favorite { display: flex; align-items: center; gap: 0.2rem; min-width: 0; }
 .row-checkbox,
 .row-checkbox svg {
   transition: none;

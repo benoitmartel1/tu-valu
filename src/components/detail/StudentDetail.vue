@@ -1,7 +1,9 @@
 <script setup>
 import { ref, watch, computed } from "vue";
 import StudentFields from "./StudentFields.vue";
-import { Trash2, User, IdCard, Component, ChevronRight, ChevronLeft } from "@lucide/vue";
+import DetailHeaderActions from "./DetailHeaderActions.vue";
+import { createProtectedStudents } from "../../stores/protectedStudents";
+import { User, IdCard, Component, ChevronRight, ChevronLeft } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import { loadStudentPhoto as loadCachedStudentPhoto, peekStudentPhoto } from "../../stores/studentPhotos";
 
@@ -186,6 +188,32 @@ function toggleNamePref(prefKey) {
   saveStudentDetail();
 }
 
+const duplicating = ref(false);
+async function duplicateStudent() {
+  if (!studentDetailEditing.value || duplicating.value) return;
+  duplicating.value = true;
+  try {
+    const student = studentDetailEditing.value;
+    const { data, error } = await createProtectedStudents([{
+      firstname: student.firstname,
+      lastname: (student.lastname || "") + " (copie)",
+      class_id: student.class_id,
+      gender: student.gender,
+      birth_date: student.birth_date,
+      custom_name: student.custom_name,
+      name_display_prefs: student.name_display_prefs,
+    }]);
+    if (error) throw error;
+    if (!data?.[0]?.id) throw new Error("Impossible de dupliquer l’élève.");
+    emit("data-changed");
+    emit("next-student", data[0].id);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    duplicating.value = false;
+  }
+}
+
 async function deleteStudent() {
   if (!props.studentId) return;
   if (
@@ -242,15 +270,7 @@ async function deleteStudent() {
             }}</span>
           </div>
         </div>
-        <button
-          type="button"
-          class="header-trash-btn"
-          title="Supprimer l'élève"
-          aria-label="Supprimer l'élève"
-          @click="deleteStudent"
-        >
-          <Trash2 :size="20" />
-        </button>
+        <DetailHeaderActions duplicate-label="Dupliquer l’élève" delete-label="Supprimer l’élève" :busy="duplicating" @duplicate="duplicateStudent" @delete="deleteStudent" />
       </div>
 
     <div v-if="studentDetailEditing" class="student-detail-tabs" role="tablist" aria-label="Détails de l’élève">
@@ -410,20 +430,6 @@ async function deleteStudent() {
 }
 .student-detail-tab:focus-visible { outline: 2px solid var(--modal-accent, var(--stadium-yellow)); outline-offset: 2px; }
 
-.header-trash-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  margin-left: auto;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-light);
-}
 
 .student-detail-layout {
   flex-direction: column;
@@ -474,7 +480,7 @@ async function deleteStudent() {
   width: 150px;
   height: 150px;
   border-radius: 50%;
-  background: var(--surface-muted);
+  background: var(--photo-placeholder-bg);
   display: flex;
   align-items: center;
   justify-content: center;

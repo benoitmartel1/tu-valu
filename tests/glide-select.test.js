@@ -10,7 +10,7 @@ function fixture(values) {
     el.style = {};
     el.ownerDocument = doc;
     el.setAttribute = () => {};
-    el.closest = () => el;
+    el.closest = (selector) => selector === '.row-checkbox' ? el : null;
     el.value = { group: index === 3 ? 'other' : 'students', checked, toggle() {
       el.value.checked = !el.value.checked;
       vGlideSelect.updated(el, { value: el.value });

@@ -1,10 +1,15 @@
 <script setup>
 import { computed } from "vue";
 
-const props = defineProps({ events: { type: Array, required: true } });
+const props = defineProps({
+  events: { type: Array, required: true },
+  formatEvent: { type: Function, default: null },
+  averageLabel: { type: [String, Number], default: null },
+});
 const latest = computed(() => props.events.at(-1));
 const history = computed(() => props.events.slice(0, -1));
 const average = computed(() => {
+  if (props.averageLabel != null) return props.averageLabel;
   const marks = props.events
     .map((event) => Number.parseFloat(event.level))
     .filter(Number.isFinite);
@@ -12,21 +17,21 @@ const average = computed(() => {
   const value = marks.reduce((sum, mark) => sum + mark, 0) / marks.length;
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 });
-const displayMark = (level) => (level === "abs" ? "ABS" : level);
+const displayMark = event => props.formatEvent && event ? props.formatEvent(event) : (event?.level === "abs" ? "ABS" : event?.level);
 </script>
 
 <template>
-  <div class="evaluation-marks">
-    <span class="evaluation-history" aria-label="Évaluations précédentes">
+  <div class="evaluation-marks" :class="{ 'evaluation-marks--history': history.length > 0 }">
+    <span v-if="history.length" class="evaluation-history" aria-label="Évaluations précédentes">
       <span v-for="event in history" :key="event.id" class="evaluation-mark">{{
-        displayMark(event.level)
+        displayMark(event)
       }}</span>
     </span>
     <strong
       class="evaluation-mark evaluation-latest"
       aria-label="Dernière évaluation"
       title="Dernière évaluation"
-      >{{ displayMark(latest?.level) }}</strong
+      >{{ displayMark(latest) }}</strong
     >
     <span
       class="evaluation-average"
@@ -44,13 +49,18 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
   --mark-height: 2.5rem;
   --mark-gap: 0.375rem;
   display: grid;
-  grid-template-columns: minmax(3rem, 1fr) var(--mark-height) 5rem;
+  grid-template-columns: max-content max-content;
+  justify-content: end;
   align-items: center;
   gap: var(--mark-gap);
-  min-width: 11.5rem;
+  min-width: max-content;
   height: var(--mark-height);
   color: var(--text-light);
   font-variant-numeric: tabular-nums;
+}
+.evaluation-marks--history {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  min-width: 11.5rem;
 }
 .evaluation-history {
   display: flex;
@@ -66,9 +76,12 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
   display: flex;
   justify-content: center;
   align-items: center;
-  flex: 0 0 var(--mark-height);
+  flex: 0 0 auto;
+  min-width: var(--mark-height);
+  padding: 0 0.3rem;
+  white-space: nowrap;
   height: var(--mark-height);
-  aspect-ratio: 1;
+  width: max-content;
   /* padding: 0.15rem; */
   border: 1px solid var(--border-color);
   border-radius: 0.35rem;
@@ -81,7 +94,8 @@ const displayMark = (level) => (level === "abs" ? "ABS" : level);
 }
 .evaluation-average {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto max-content;
+  white-space: nowrap;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;

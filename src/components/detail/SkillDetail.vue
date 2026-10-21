@@ -1,8 +1,9 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import SkillOptions from "./SkillOptions.vue";
+import DetailHeaderActions from "./DetailHeaderActions.vue";
 import Sneaker from "../Sneaker.js";
-import { Trash2, BarChart3, ChevronLeft, ChevronRight } from "@lucide/vue";
+import { BarChart3, ChevronLeft, ChevronRight } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import ScalePreview from "../ScalePreview.vue";
 import RangeInput from "../RangeInput.vue";
@@ -22,6 +23,7 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "deleted", "data-changed", "duplicated", "navigate-skill"]);
 
+const skillOptions = ref(null);
 const activeTab = ref(props.initialTab);
 const skillIndex = computed(() => props.editingSkills.findIndex(skill => skill.id === props.skillId));
 const previousSkill = computed(() => skillIndex.value > 0 ? props.editingSkills[skillIndex.value - 1] : null);
@@ -231,9 +233,7 @@ function selectSkillIcon(iconName) {
           class="skill-icon-img" alt="" />
         <Sneaker v-else :size="64" aria-hidden="true" />
       </button>
-      <button type="button" class="header-trash-btn" title="Supprimer l’habileté" aria-label="Supprimer l’habileté" @click="deleteSkill">
-        <Trash2 :size="20" />
-      </button>
+      <DetailHeaderActions duplicate-label="Dupliquer l’habileté" delete-label="Supprimer l’habileté" :busy="!skillOptions || skillOptions.busy" @duplicate="skillOptions.duplicate()" @delete="deleteSkill" />
     </div>
     <div v-if="skillDetailEditing" class="skill-detail-tabs" role="tablist" aria-label="Détails de l’habileté">
       <button v-for="(tab, index) in detailTabs" :key="tab.id" :id="`skill-tab-${tab.id}`"
@@ -244,7 +244,7 @@ function selectSkillIcon(iconName) {
         <component :is="tab.icon" :size="36" :stroke-width="1.5" aria-hidden="true" />
       </button>
     </div>
-    <SkillOptions v-if="skillDetailEditing" :key="skillId" :id="skillId" :section="activeTab"
+    <SkillOptions ref="skillOptions" v-if="skillDetailEditing" :key="skillId" :id="skillId" :section="activeTab"
       @changed="emit('data-changed')" @duplicated="emit('duplicated', $event)">
       <template #info>
         <div class="detail-section">
@@ -333,11 +333,6 @@ function selectSkillIcon(iconName) {
 }
 .skill-detail { height: 100%; min-height: 0; }
 .skill-detail-header { flex-shrink: 0; }
-.header-trash-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; margin-left: auto; padding: 0;
-  background: none; border: none; cursor: pointer; color: var(--text-light);
-}
 .skill-detail-header { display: flex; align-items: flex-start; width: 100%; padding: 1rem 0 0.5rem; gap: 1rem; }
 .skill-detail-tabs { display: flex; justify-content: space-around; width: 100%; gap: 0.35rem; margin: 0.75rem 0 1rem; flex-shrink: 0; }
 .skill-detail-tab {

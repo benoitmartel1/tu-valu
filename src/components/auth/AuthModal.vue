@@ -194,7 +194,7 @@ function switchTab(tab) {
       </button>
 
       <div class="auth-header">
-        <h2>Welcome to Tu-Valu</h2>
+        <h2>Welcome to Tuvalu</h2>
         <p>Sign in to access your classes and evaluations</p>
       </div>
 

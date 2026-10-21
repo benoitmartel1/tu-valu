@@ -21,7 +21,7 @@ Applied CORS configuration to the OVH S3 bucket using AWS CLI.
 ### CORS Rules Applied
 
 - **Allowed Origins:**
-  - `http://localhost:5173` (local development)
+  - `http://localhost:5173` and `http://localhost:5174` (local development)
   - `https://dev.benoitmartel.com` (production)
 - **Allowed Methods:** POST, PUT, GET, HEAD
 - **Allowed Headers:** \* (all headers)

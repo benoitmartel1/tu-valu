@@ -528,7 +528,7 @@ onMounted(async () => {
 });
 
 async function selectClass(id) {
-  selectedClassId.value = id;
+  selectedClassId.value = selectedClassId.value === id ? null : id;
   // Don't close modal - let user manage classes/students
   if (hasEvalSelection.value) startSession();
 }
@@ -546,7 +546,7 @@ async function onStudentImportImported() {
 const selectedEvalId = ref(null);
 
 function selectEvalInModal(evalId) {
-  selectedEvalId.value = evalId;
+  selectedEvalId.value = selectedEvalId.value === evalId ? null : evalId;
 }
 
 // Helper functions for template

@@ -3,6 +3,7 @@
   color-scheme: dark;
   --surface: #20252c;
   --surface-muted: #2c323a;
+  --photo-placeholder-bg: var(--surface-muted);
   --border-color: #58616c;
   --text-light: #f0f6fc;
   --text-muted: #b1bac4;
@@ -21,6 +22,7 @@
   color-scheme: light;
   --surface: #ffffff;
   --surface-muted: #dce3eb;
+  --photo-placeholder-bg: #f0f3f6;
   --border-color: #8c959f;
   --text-light: #1f2328;
   --text-muted: #59636e;
@@ -624,4 +626,60 @@ textarea {
   background: var(--surface-muted);
   border-color: transparent;
   color: var(--text-light);
+}
+
+:root[data-theme="light"] .live-screen.live-screen--special-zones {
+  background: var(--surface);
+}
+
+/* Match neutral action icons across class and activity pickers. */
+:root .picker-screen--modal .class-modal .add-btn,
+:root .picker-screen--modal .class-modal .class-modal-rail-button,
+:root .picker-screen--modal .class-modal .edit-class-btn-small,
+:root .picker-screen--modal .class-modal .eval-drag-handle,
+:root .picker-screen--modal .class-modal .class-level-trigger,
+:root .picker-screen--modal .class-modal .class-clear-selection {
+  color: var(--text-muted);
+}
+:root .picker-screen--modal .class-modal .edit-class-btn-small {
+  opacity: 1;
+}
+:root .picker-screen--modal .class-modal .eval-drag-handle svg {
+  opacity: 0.5;
+}
+:root .picker-screen--modal .class-modal .picker-item.selected .edit-class-btn-small,
+:root .picker-screen--modal .class-modal .picker-item.selected .eval-drag-handle,
+:root .picker-screen--modal .class-modal .archive-toggle.archive-toggle--active {
+  color: #ffffff;
+}
+
+/* Rail actions share the heading and search row centers across picker pages. */
+:root .picker-screen--modal .class-modal-rail {
+  padding-top: 0.5rem;
+  gap: 1.25rem;
+  flex-shrink: 0;
+}
+
+/* Reserve tab space independently of the open tab's bottom extension. */
+:root .top-bar {
+  align-items: flex-start;
+  min-height: 54px;
+}
+:root .top-bar-center {
+  align-items: flex-start;
+  min-height: 54px;
+}
+:root .top-bar .fab {
+  box-sizing: border-box;
+  height: 50px;
+  margin-bottom: 0;
+  padding: 0 0.5rem;
+  border: 2px solid transparent;
+  align-self: flex-start;
+}
+:root .top-bar .fab.fab--modal-open,
+:root .top-bar .fab.fab--modal-report {
+  height: 54px;
+  padding: 0 0.5rem 4px;
+  border-bottom: 2px solid transparent;
 }
