@@ -2,7 +2,7 @@
 import { ref, watch, computed } from "vue";
 import StudentFields from "./StudentFields.vue";
 import DetailHeaderActions from "./DetailHeaderActions.vue";
-import { createProtectedStudents } from "../../stores/protectedStudents";
+import { createProtectedStudents, updateProtectedStudent } from "../../stores/protectedStudents";
 import { User, IdCard, Component, ChevronRight, ChevronLeft } from "@lucide/vue";
 import { supabase } from "../../supabase";
 import { loadStudentPhoto as loadCachedStudentPhoto, peekStudentPhoto } from "../../stores/studentPhotos";
@@ -45,6 +45,7 @@ function navigateTabs(event, index) {
   event.currentTarget.parentElement.children[next].focus();
 }
 const studentDetailEditing = ref(null);
+const saveError = ref("");
 const studentPhotoUrl = ref(null);
 const studentPhotoLoaded = ref(false);
 const studentClassName = ref("");
@@ -138,9 +139,9 @@ async function saveStudentDetail() {
   const { firstname, lastname, gender } = studentDetailEditing.value;
   if (!firstname?.trim() && !lastname?.trim()) return;
 
-  const { error } = await supabase
-    .from("tu_students")
-    .update({
+  saveError.value = "";
+  const { error } = await updateProtectedStudent({
+      id: studentId,
       firstname: firstname?.trim() || "",
       lastname: lastname?.trim() || "",
       gender: gender || null,
@@ -151,10 +152,10 @@ async function saveStudentDetail() {
         showLastname: false,
         showCustomName: false,
       },
-    })
-    .eq("id", studentId);
+    });
 
   if (error) {
+    saveError.value = error.message || "Impossible d’enregistrer les modifications de l’élève.";
     console.error("Failed to save student:", error);
     return;
   }
@@ -394,6 +395,7 @@ async function deleteStudent() {
 
       </div>
     </div>
+    <p v-if="saveError" role="alert">{{ saveError }}</p>
     <StudentFields v-if="studentDetailEditing" v-show="activeTab !== 'name'"
       :key="studentId" :id="studentId" :section="activeTab" @changed="emit('data-changed')" />
     </div>
