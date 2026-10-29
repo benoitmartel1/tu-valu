@@ -46,6 +46,23 @@ function navigateTabs(event, index) {
 }
 const studentDetailEditing = ref(null);
 const saveError = ref("");
+const savedIdentity = ref("");
+let editingStudentId = null;
+let pendingIdentitySave = Promise.resolve();
+function identitySignature(student) {
+  return JSON.stringify({
+    firstname: student.firstname?.trim() || "",
+    lastname: student.lastname?.trim() || "",
+    gender: student.gender || null,
+    custom_name: student.custom_name?.trim() || null,
+    name_display_prefs: {
+      showFirstname: student.name_display_prefs?.showFirstname ?? true,
+      showInitial: student.name_display_prefs?.showInitial ?? false,
+      showLastname: student.name_display_prefs?.showLastname ?? false,
+      showCustomName: student.name_display_prefs?.showCustomName ?? false,
+    },
+  });
+}
 const studentPhotoUrl = ref(null);
 const studentPhotoLoaded = ref(false);
 const studentClassName = ref("");
@@ -84,8 +101,16 @@ watch(
       return;
     }
 
+    // A background refresh must not discard edits in the open form.
+    if (editingStudentId === id && studentDetailEditing.value &&
+        identitySignature(studentDetailEditing.value) !== savedIdentity.value) return;
+    editingStudentId = id;
     // Use prop data immediately for responsive UI
-    studentDetailEditing.value = { ...data };
+    studentDetailEditing.value = {
+      ...data,
+      name_display_prefs: data.name_display_prefs ? { ...data.name_display_prefs } : null,
+    };
+    savedIdentity.value = identitySignature(studentDetailEditing.value);
     studentClassName.value = data.class_name || "";
     loadStudentPhoto(data.photo_url);
   },
@@ -102,13 +127,13 @@ watch(
     const { data } = await supabase
       .from("tu_students")
       .select(
-        "id, firstname, lastname, gender, birth_date, class_id, student_number, name_display_prefs, photo_url, custom_name",
+        "id, birth_date, class_id, student_number, photo_url",
       )
       .eq("id", id)
       .single();
 
     if (data && id === props.studentId) {
-      studentDetailEditing.value = { ...data };
+      studentDetailEditing.value = { ...studentDetailEditing.value, ...data };
       loadStudentPhoto(data.photo_url);
 
       const { data: classData } = await supabase
@@ -132,27 +157,32 @@ function getInitials(firstname, lastname) {
   return (firstname?.[0] || "") + (lastname?.[0] || "");
 }
 
-async function saveStudentDetail() {
-  const studentId = props.studentId;
-  if (!studentDetailEditing.value || !studentId) return;
+function handleIdentityBlur(field) {
+  console.info("[StudentDetail] Field blurred", { field });
+  return saveStudentDetail();
+}
 
-  const { firstname, lastname, gender } = studentDetailEditing.value;
-  if (!firstname?.trim() && !lastname?.trim()) return;
+function saveStudentDetail() {
+  const studentId = props.studentId;
+  if (!studentDetailEditing.value || !studentId) return Promise.resolve();
+  const identity = identitySignature(studentDetailEditing.value);
+  const student = { id: studentId, ...JSON.parse(identity) };
+  pendingIdentitySave = pendingIdentitySave.catch(() => {}).then(() => persistStudentIdentity(student, identity));
+  return pendingIdentitySave;
+}
+
+async function persistStudentIdentity(student, identity) {
+  const studentId = student.id;
+  if (studentId !== props.studentId) return;
+  if (!student.firstname && !student.lastname) return;
+  if (identity === savedIdentity.value) {
+    console.info("[StudentDetail] Save skipped: identity unchanged");
+    return;
+  }
+  console.info("[StudentDetail] Saving identity");
 
   saveError.value = "";
-  const { error } = await updateProtectedStudent({
-      id: studentId,
-      firstname: firstname?.trim() || "",
-      lastname: lastname?.trim() || "",
-      gender: gender || null,
-      custom_name: studentDetailEditing.value.custom_name?.trim() || null,
-      name_display_prefs: studentDetailEditing.value.name_display_prefs || {
-        showFirstname: true,
-        showInitial: false,
-        showLastname: false,
-        showCustomName: false,
-      },
-    });
+  const { data, error } = await updateProtectedStudent(student);
 
   if (error) {
     saveError.value = error.message || "Impossible d’enregistrer les modifications de l’élève.";
@@ -160,6 +190,15 @@ async function saveStudentDetail() {
     return;
   }
 
+  const saved = data?.find(row => row.id === studentId);
+  if (!saved || saved.firstname !== student.firstname) {
+    saveError.value = "Le serveur n’a pas confirmé le nouveau prénom. Rechargez la fiche et réessayez.";
+    console.error("[StudentDetail] First-name save was not confirmed");
+    return;
+  }
+
+  if (props.studentId === studentId) savedIdentity.value = identity;
+  console.info("[StudentDetail] Identity saved; requesting app refresh");
   // Notify parent to reload data
   emit("data-changed");
 }
@@ -295,7 +334,7 @@ async function deleteStudent() {
             v-model="studentDetailEditing.firstname"
             class="detail-input"
             placeholder="Prénom"
-            @blur="saveStudentDetail"
+            @blur="handleIdentityBlur('firstname')"
           />
         </div>
         <div class="detail-section">
@@ -303,7 +342,7 @@ async function deleteStudent() {
             v-model="studentDetailEditing.lastname"
             class="detail-input"
             placeholder="Nom"
-            @blur="saveStudentDetail"
+            @blur="handleIdentityBlur('lastname')"
           />
         </div>
         <div class="detail-section">
@@ -311,7 +350,7 @@ async function deleteStudent() {
             v-model="studentDetailEditing.custom_name"
             class="detail-input detail-input--custom-name"
             placeholder="Surnom"
-            @blur="saveStudentDetail"
+            @blur="handleIdentityBlur('custom_name')"
           />
         </div>
         <div class="detail-section">
